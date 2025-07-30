@@ -3,7 +3,7 @@ import telebot
 from telebot import types
 from flask import Flask, request
 from datetime import datetime
-import threading
+import time
 
 TOKEN = os.environ.get('TOKEN')
 if not TOKEN:
@@ -11,6 +11,7 @@ if not TOKEN:
     exit(1)
 
 PORT = int(os.environ.get('PORT', 8080))
+WEBHOOK_URL = os.environ.get('RAILWAY_STATIC_URL')  # Автоматически на Railway
 
 bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
@@ -103,6 +104,16 @@ free_text = (
     "💙🐱 <b><i>Вместе мы делаем мир добрее!</i></b> 🐱💙"
 )
 
+# Webhook обработчик
+@app.route(f'/{TOKEN}', methods=['POST'])
+def webhook():
+    if request.headers.get('content-type') == 'application/json':
+        json_string = request.get_data().decode('utf-8')
+        update = telebot.types.Update.de_json(json_string)
+        bot.process_new_updates([update])
+        return ''
+    return 'Bad request', 403
+
 @app.route('/')
 def home():
     return f"🤖 Bot is running! Time: {datetime.now().strftime('%H:%M:%S')}"
@@ -133,15 +144,16 @@ def handle_buttons(message):
         markup.add("💰 Платная", "🆓 Бесплатная")
         bot.send_message(message.chat.id, "Пожалуйста, выберите одну из кнопок ниже:", reply_markup=markup)
 
-def run_bot():
-    print("🚀 Starting Telegram bot...")
-    bot.polling(none_stop=True, interval=1)
+def setup_webhook():
+    try:
+        bot.remove_webhook()
+        time.sleep(1)
+        bot.set_webhook(url=f"https://{WEBHOOK_URL}/{TOKEN}")
+        print(f"✅ Webhook установлен: https://{WEBHOOK_URL}/{TOKEN}")
+    except Exception as e:
+        print(f"❌ Ошибка webhook: {e}")
 
 if __name__ == "__main__":
-    # Запускаем бота в отдельном потоке
-    bot_thread = threading.Thread(target=run_bot, daemon=True)
-    bot_thread.start()
-    
-    # Запускаем Flask для health checks
-    print(f"🌐 Starting Flask on port {PORT}")
+    setup_webhook()
     app.run(host='0.0.0.0', port=PORT)
+
