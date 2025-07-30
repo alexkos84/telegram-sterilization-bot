@@ -1,4 +1,3 @@
-# main.py
 import os
 import telebot
 from telebot import types
@@ -6,7 +5,11 @@ from flask import Flask, request
 from datetime import datetime
 import threading
 
-TOKEN = os.environ['TOKEN']
+TOKEN = os.environ.get('TOKEN')
+if not TOKEN:
+    print("❌ Ошибка: Переменная TOKEN не найдена!")
+    exit(1)
+
 PORT = int(os.environ.get('PORT', 8080))
 
 bot = telebot.TeleBot(TOKEN)
