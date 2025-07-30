@@ -6,7 +6,7 @@ from datetime import datetime
 import time
 import logging
 
-# Загрузка текстов из файлов
+# 📄 Загрузка текста из HTML-файлов
 def load_text(filename):
     path = os.path.join("assets", filename)
     with open(path, encoding="utf-8") as f:
@@ -15,14 +15,14 @@ def load_text(filename):
 paid_text = load_text("paid_text.html")
 free_text = load_text("free_text.html")
 
-# Настройка логирования
+# 🔧 Настройка логирования
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
-# Конфигурация
+# ⚙️ Конфигурация
 TOKEN = os.environ.get('TOKEN')
 if not TOKEN:
     logger.error("❌ Ошибка: Переменная TOKEN не найдена!")
@@ -34,9 +34,7 @@ WEBHOOK_URL = os.environ.get('RAILWAY_PUBLIC_DOMAIN')  # Автоматичес�
 bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
 
-# Ваши тексты (paid_text и free_text остаются без изменений)
-
-# Webhook обработчик
+# 🌐 Webhook обработчик
 @app.route(f'/{TOKEN}', methods=['POST'])
 def webhook():
     if request.headers.get('content-type') == 'application/json':
@@ -54,17 +52,20 @@ def home():
 def health():
     return {"status": "ok", "time": datetime.now().isoformat()}
 
+# 🎬 Стартовая команда
 @bot.message_handler(commands=['start'])
 def start(message):
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     markup.add("💰 Платная", "🆓 Бесплатная")
     bot.send_message(message.chat.id, "Выберите тип стерилизации:", reply_markup=markup)
 
+# 📊 Статус бота
 @bot.message_handler(commands=['status'])
 def status(message):
     current_time = datetime.now().strftime('%d.%m.%Y %H:%M:%S')
     bot.send_message(message.chat.id, f"🤖 Бот работает!\n⏰ Время: {current_time}")
 
+# 🎯 Обработка кнопок
 @bot.message_handler(func=lambda message: True)
 def handle_buttons(message):
     if message.text == "💰 Платная":
@@ -76,19 +77,19 @@ def handle_buttons(message):
         markup.add("💰 Платная", "🆓 Бесплатная")
         bot.send_message(message.chat.id, "Пожалуйста, выберите одну из кнопок ниже:", reply_markup=markup)
 
+# 🔄 Установка webhook
 def setup_webhook():
     try:
-        # Удаляем старый webhook
         bot.remove_webhook()
         time.sleep(2)
-        
+
         if not WEBHOOK_URL:
             logger.error("❌ WEBHOOK_URL не установлен!")
             return False
-            
+
         full_url = f"https://{WEBHOOK_URL}/{TOKEN}"
         logger.info(f"🔄 Устанавливаю webhook на: {full_url}")
-        
+
         bot.set_webhook(
             url=full_url,
             max_connections=10,
@@ -99,6 +100,7 @@ def setup_webhook():
         logger.error(f"❌ Ошибка webhook: {e}")
         return False
 
+# 🚀 Запуск приложения
 if __name__ == "__main__":
     if setup_webhook():
         logger.info(f"🌐 Запуск Flask на порту {PORT}")
