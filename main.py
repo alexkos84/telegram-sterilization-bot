@@ -6,6 +6,13 @@ from datetime import datetime
 import time
 import logging
 
+# 🔧 Настройка логирования (перенесено вверх)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
 # 📄 Динамическая загрузка текста из HTML-файлов
 def load_text(filename):
     try:
@@ -13,14 +20,13 @@ def load_text(filename):
         with open(path, encoding="utf-8") as f:
             return f.read()
     except FileNotFoundError:
-        logging.error(f"❌ Файл {filename} не найден!")
+        logger.error(f"❌ Файл {filename} не найден!")
         return f"Контент из {filename} недоступен"
     except Exception as e:
-        logging.error(f"❌ Ошибка загрузки {filename}: {e}")
+        logger.error(f"❌ Ошибка загрузки {filename}: {e}")
         return "Ошибка загрузки контента"
 
 def load_all_texts():
-    """Автоматически загружает все HTML файлы из папки assets"""
     texts = {}
     assets_dir = "assets"
     
@@ -31,29 +37,18 @@ def load_all_texts():
     try:
         for filename in os.listdir(assets_dir):
             if filename.endswith('.html'):
-                key = filename.replace('.html', '')  # paid_text.html -> paid_text
+                key = filename.replace('.html', '')
                 texts[key] = load_text(filename)
                 logger.info(f"✅ Загружен файл: {filename} -> {key}")
-        
         return texts
-        
     except Exception as e:
         logger.error(f"❌ Ошибка загрузки файлов: {e}")
         return texts
 
-# 🗂️ Автоматическая загрузка всех текстов
+# 🗂️ Загрузка всех текстов
 texts = load_all_texts()
-
-# Для обратной совместимости (если нужно)
 paid_text = texts.get('paid_text', 'Платная информация недоступна')
 free_text = texts.get('free_text', 'Бесплатная информация недоступна')
-
-# 🔧 Настройка логирования
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
 
 # ⚙️ Конфигурация
 TOKEN = os.environ.get('TOKEN')
@@ -62,8 +57,6 @@ if not TOKEN:
     exit(1)
 
 PORT = int(os.environ.get('PORT', 8080))
-
-# 🔧 Улучшенное определение webhook URL для Railway
 WEBHOOK_URL = (
     os.environ.get('RAILWAY_STATIC_URL') or 
     os.environ.get('RAILWAY_PUBLIC_DOMAIN') or
@@ -107,149 +100,86 @@ def health():
 @bot.message_handler(commands=['start'])
 def start(message):
     try:
-        markup = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=False)
+        markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
         markup.add("💰 Платная", "🆓 Бесплатная")
-        
-        welcome_text = (
-            "👋 Добро пожаловать!\n\n"
-            "Выберите тип стерилизации, чтобы получить подробную информацию:"
-        )
-        
         bot.send_message(
             message.chat.id, 
-            welcome_text, 
+            "👋 Добро пожаловать!\n\nВыберите тип стерилизации:",
             reply_markup=markup,
             parse_mode="HTML"
         )
-        
         logger.info(f"👤 Новый пользователь: {message.from_user.id}")
-        
     except Exception as e:
-        logger.error(f"❌ Ошибка в команде /start: {e}")
+        logger.error(f"❌ Ошибка в /start: {e}")
         bot.send_message(message.chat.id, "Произошла ошибка. Попробуйте еще раз.")
 
 # 📊 Статус бота
 @bot.message_handler(commands=['status'])
 def status(message):
     try:
-        current_time = datetime.now().strftime('%d.%m.%Y %H:%M:%S')
-        status_text = (
-            "🤖 <b>Статус бота</b>\n\n"
-            f"✅ Бот активен\n"
-            f"⏰ Время: <code>{current_time}</code>\n"
-            f"🆔 Ваш ID: <code>{message.from_user.id}</code>"
+        now = datetime.now().strftime('%d.%m.%Y %H:%M:%S')
+        bot.send_message(
+            message.chat.id,
+            f"🤖 <b>Статус бота</b>\n\n✅ Бот активен\n⏰ Время: <code>{now}</code>\n🆔 Ваш ID: <code>{message.from_user.id}</code>",
+            parse_mode="HTML"
         )
-        bot.send_message(message.chat.id, status_text, parse_mode="HTML")
-        
     except Exception as e:
-        logger.error(f"❌ Ошибка в команде /status: {e}")
-        bot.send_message(message.chat.id, "Ошибка получения статуса")
+        logger.error(f"❌ Ошибка в /status: {e}")
+        bot.send_message(message.chat.id, "Ошибка получения статуса.")
 
-# 🎯 Обработка кнопок (с динамической загрузкой)
-@bot.message_handler(func=lambda message: True)
+# 🎯 Обработка кнопок
+@bot.message_handler(func=lambda m: True)
 def handle_buttons(message):
     try:
-        # Динамическая обработка кнопок
         button_mapping = {
             "💰 Платная": "paid_text",
-            "🆓 Бесплатная": "free_text",
-            # Легко добавлять новые кнопки:
-            # "🌟 Премиум": "premium_text",
-            # "ℹ️ Информация": "info_text"
+            "🆓 Бесплатная": "free_text"
         }
-        
         if message.text in button_mapping:
-            text_key = button_mapping[message.text]
-            content = texts.get(text_key, f"Контент '{text_key}' не найден")
-            
+            content = texts.get(button_mapping[message.text], "Контент недоступен")
             bot.send_message(
-                message.chat.id, 
-                content, 
-                parse_mode="HTML", 
+                message.chat.id,
+                content,
+                parse_mode="HTML",
                 disable_web_page_preview=True
             )
-            logger.info(f"📤 Отправлен контент '{text_key}' пользователю {message.from_user.id}")
-            
         else:
-            # Динамическое создание клавиатуры на основе доступных файлов
             markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-            
-            # Основные кнопки
             markup.add("💰 Платная", "🆓 Бесплатная")
-            
-            # Можно добавить дополнительные кнопки на основе файлов
-            # for filename in texts.keys():
-            #     if filename not in ['paid_text', 'free_text']:
-            #         markup.add(f"📄 {filename.replace('_', ' ').title()}")
-            
-            help_text = (
-                "❓ Пожалуйста, выберите одну из кнопок ниже:\n\n"
-                "💰 <b>Платная</b> - подробная информация о платной стерилизации\n"
-                "🆓 <b>Бесплатная</b> - информация о бесплатной стерилизации\n\n"
-                "Или используйте команды:\n"
-                "/start - начать сначала\n"
-                "/status - статус бота"
-            )
-            
             bot.send_message(
-                message.chat.id, 
-                help_text, 
+                message.chat.id,
+                "❓ Выберите одну из кнопок ниже:\n\n💰 Платная\n🆓 Бесплатная\n\nили используйте команды: /start, /status",
                 reply_markup=markup,
                 parse_mode="HTML"
             )
-            
     except Exception as e:
-        logger.error(f"❌ Ошибка обработки сообщения: {e}")
-        bot.send_message(message.chat.id, "Произошла ошибка. Попробуйте еще раз.")
+        logger.error(f"❌ Ошибка обработки кнопок: {e}")
+        bot.send_message(message.chat.id, "Ошибка. Попробуйте позже.")
 
 # 🔄 Установка webhook
 def setup_webhook():
     try:
-        # Удаляем старый webhook
         bot.remove_webhook()
         time.sleep(2)
-        
         if not WEBHOOK_URL:
-            logger.error("❌ WEBHOOK_URL не установлен!")
-            logger.info("💡 Убедитесь, что переменные окружения настроены правильно")
+            logger.error("❌ WEBHOOK_URL не задан!")
             return False
-        
-        # Формируем полный URL
         full_url = f"https://{WEBHOOK_URL}/{TOKEN}"
-        logger.info(f"🔄 Устанавливаю webhook на: {full_url}")
-        
-        # Устанавливаем webhook
-        result = bot.set_webhook(
-            url=full_url,
-            max_connections=10,
-            allowed_updates=["message", "callback_query"]
-        )
-        
+        result = bot.set_webhook(url=full_url, max_connections=10)
         if result:
-            logger.info("✅ Webhook успешно установлен!")
+            logger.info(f"✅ Webhook установлен: {full_url}")
             return True
         else:
             logger.error("❌ Не удалось установить webhook")
             return False
-            
     except Exception as e:
         logger.error(f"❌ Ошибка установки webhook: {e}")
         return False
 
-# 🚀 Запуск приложения
+# 🚀 Запуск сервера
 if __name__ == "__main__":
     logger.info("🚀 Запуск Telegram бота...")
-    
     if setup_webhook():
-        logger.info(f"🌐 Запуск Flask сервера на порту {PORT}")
-        logger.info(f"🔗 Webhook URL: https://{WEBHOOK_URL}/{TOKEN}")
-        
-        # Запуск Flask приложения
-        app.run(
-            host='0.0.0.0', 
-            port=PORT,
-            debug=False  # Отключаем debug режим для продакшена
-        )
+        app.run(host='0.0.0.0', port=PORT)
     else:
-        logger.error("🚨 Не удалось настроить webhook!")
-        logger.info("🔧 Проверьте переменные окружения и попробуйте снова")
+        logger.error("🚨 Webhook не настроен. Проверь конфигурацию.")
