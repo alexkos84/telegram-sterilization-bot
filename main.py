@@ -6,6 +6,15 @@ from datetime import datetime
 import time
 import logging
 
+# Загрузка текстов из файлов
+def load_text(filename):
+    path = os.path.join("assets", filename)
+    with open(path, encoding="utf-8") as f:
+        return f.read()
+
+paid_text = load_text("paid_text.html")
+free_text = load_text("free_text.html")
+
 # Настройка логирования
 logging.basicConfig(
     level=logging.INFO,
