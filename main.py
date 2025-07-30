@@ -1,9 +1,11 @@
 import os
 import telebot
 from telebot import types
-from flask import Flask, request
+from flask import Flask
 from datetime import datetime
 import threading
+import time
+import requests
 
 TOKEN = os.environ.get('TOKEN')
 if not TOKEN:
@@ -11,6 +13,15 @@ if not TOKEN:
     exit(1)
 
 PORT = int(os.environ.get('PORT', 8080))
+
+print(f"🔑 TOKEN найден: {TOKEN[:10]}...")
+
+# Удаляем webhook перед стартом
+try:
+    requests.get(f"https://api.telegram.org/bot{TOKEN}/deleteWebhook")
+    print("🗑️ Webhook удален")
+except:
+    print("⚠️ Не удалось удалить webhook")
 
 bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
@@ -113,9 +124,11 @@ def health():
 
 @bot.message_handler(commands=['start'])
 def start(message):
+    print(f"👤 Получен /start от {message.from_user.first_name}")
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     markup.add("💰 Платная", "🆓 Бесплатная")
     bot.send_message(message.chat.id, "Выберите тип стерилизации:", reply_markup=markup)
+    print("✅ Ответ отправлен")
 
 @bot.message_handler(commands=['status'])
 def status(message):
@@ -124,10 +137,13 @@ def status(message):
 
 @bot.message_handler(func=lambda message: True)
 def handle_buttons(message):
+    print(f"💬 Получено сообщение: {message.text}")
     if message.text == "💰 Платная":
         bot.send_message(message.chat.id, paid_text, parse_mode="HTML", disable_web_page_preview=True)
+        print("✅ Показана платная стерилизация")
     elif message.text == "🆓 Бесплатная":
         bot.send_message(message.chat.id, free_text, parse_mode="HTML", disable_web_page_preview=True)
+        print("✅ Показана бесплатная стерилизация")
     else:
         markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
         markup.add("💰 Платная", "🆓 Бесплатная")
@@ -135,9 +151,24 @@ def handle_buttons(message):
 
 def run_bot():
     print("🚀 Starting Telegram bot...")
-    bot.polling(none_stop=True, interval=1)
+    while True:
+        try:
+            print("🔄 Запуск polling...")
+            bot.polling(none_stop=True, interval=1, timeout=60)
+        except Exception as e:
+            print(f"❌ Ошибka polling: {e}")
+            print("🔄 Перезапуск через 5 секунд...")
+            time.sleep(5)
 
 if __name__ == "__main__":
+    # Проверяем подключение к Telegram
+    try:
+        bot_info = bot.get_me()
+        print(f"✅ Подключение к боту успешно: @{bot_info.username}")
+    except Exception as e:
+        print(f"❌ Ошибка подключения к боту: {e}")
+        exit(1)
+    
     # Запускаем бота в отдельном потоке
     bot_thread = threading.Thread(target=run_bot, daemon=True)
     bot_thread.start()
