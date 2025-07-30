@@ -20,8 +20,7 @@ if not TOKEN:
     exit(1)
 
 PORT = int(os.environ.get('PORT', 8080))
-WEBHOOK_URL = os.environ.get('RAILWAY_PUBLIC_DOMAIN') or "your-app-name.up.railway.app"
-
+WEBHOOK_URL = "telegram-sterilization-bot-production.up.railway.app"  # Ваш реальный домен
 bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
 
