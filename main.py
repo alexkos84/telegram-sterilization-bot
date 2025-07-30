@@ -6,7 +6,7 @@ from datetime import datetime
 import time
 import logging
 
-# 📄 Загрузка текста из HTML-файлов
+# 📄 Динамическая загрузка текста из HTML-файлов
 def load_text(filename):
     try:
         path = os.path.join("assets", filename)
@@ -19,8 +19,34 @@ def load_text(filename):
         logging.error(f"❌ Ошибка загрузки {filename}: {e}")
         return "Ошибка загрузки контента"
 
-paid_text = load_text("paid_text.html")
-free_text = load_text("free_text.html")
+def load_all_texts():
+    """Автоматически загружает все HTML файлы из папки assets"""
+    texts = {}
+    assets_dir = "assets"
+    
+    if not os.path.exists(assets_dir):
+        logger.warning(f"📁 Папка {assets_dir} не найдена!")
+        return texts
+    
+    try:
+        for filename in os.listdir(assets_dir):
+            if filename.endswith('.html'):
+                key = filename.replace('.html', '')  # paid_text.html -> paid_text
+                texts[key] = load_text(filename)
+                logger.info(f"✅ Загружен файл: {filename} -> {key}")
+        
+        return texts
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка загрузки файлов: {e}")
+        return texts
+
+# 🗂️ Автоматическая загрузка всех текстов
+texts = load_all_texts()
+
+# Для обратной совместимости (если нужно)
+paid_text = texts.get('paid_text', 'Платная информация недоступна')
+free_text = texts.get('free_text', 'Бесплатная информация недоступна')
 
 # 🔧 Настройка логирования
 logging.basicConfig(
@@ -119,31 +145,42 @@ def status(message):
         logger.error(f"❌ Ошибка в команде /status: {e}")
         bot.send_message(message.chat.id, "Ошибка получения статуса")
 
-# 🎯 Обработка кнопок
+# 🎯 Обработка кнопок (с динамической загрузкой)
 @bot.message_handler(func=lambda message: True)
 def handle_buttons(message):
     try:
-        if message.text == "💰 Платная":
-            bot.send_message(
-                message.chat.id, 
-                paid_text, 
-                parse_mode="HTML", 
-                disable_web_page_preview=True
-            )
-            logger.info(f"📤 Отправлена платная информация пользователю {message.from_user.id}")
+        # Динамическая обработка кнопок
+        button_mapping = {
+            "💰 Платная": "paid_text",
+            "🆓 Бесплатная": "free_text",
+            # Легко добавлять новые кнопки:
+            # "🌟 Премиум": "premium_text",
+            # "ℹ️ Информация": "info_text"
+        }
+        
+        if message.text in button_mapping:
+            text_key = button_mapping[message.text]
+            content = texts.get(text_key, f"Контент '{text_key}' не найден")
             
-        elif message.text == "🆓 Бесплатная":
             bot.send_message(
                 message.chat.id, 
-                free_text, 
+                content, 
                 parse_mode="HTML", 
                 disable_web_page_preview=True
             )
-            logger.info(f"📤 Отправлена бесплатная информация пользователю {message.from_user.id}")
+            logger.info(f"📤 Отправлен контент '{text_key}' пользователю {message.from_user.id}")
             
         else:
+            # Динамическое создание клавиатуры на основе доступных файлов
             markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+            
+            # Основные кнопки
             markup.add("💰 Платная", "🆓 Бесплатная")
+            
+            # Можно добавить дополнительные кнопки на основе файлов
+            # for filename in texts.keys():
+            #     if filename not in ['paid_text', 'free_text']:
+            #         markup.add(f"📄 {filename.replace('_', ' ').title()}")
             
             help_text = (
                 "❓ Пожалуйста, выберите одну из кнопок ниже:\n\n"
