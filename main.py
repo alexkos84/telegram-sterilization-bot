@@ -45,6 +45,18 @@ def load_all_texts():
         logger.error(f"❌ Ошибка загрузки файлов: {e}")
         return texts
 
+# 🖼️ Конфигурация изображений
+IMAGES = {
+    'paid_text': 'https://example.com/paid_sterilization.jpg',  # Замените на реальную ссылку
+    'free_text': 'https://example.com/free_sterilization.jpg'   # Замените на реальную ссылку
+}
+
+# Альтернативно - локальные файлы в папке assets/images/
+LOCAL_IMAGES = {
+    'paid_text': os.path.join('assets', 'images', 'paid.jpg'),
+    'free_text': os.path.join('assets', 'images', 'free.jpg')
+}
+
 # 🗂️ Загрузка всех текстов
 texts = load_all_texts()
 paid_text = texts.get('paid_text', 'Платная информация недоступна')
@@ -65,6 +77,55 @@ WEBHOOK_URL = (
 
 bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
+
+# 🖼️ Функция отправки сообщения с изображением
+def send_message_with_image(chat_id, text, image_key, use_local=False):
+    try:
+        if use_local:
+            # Отправка локального файла
+            image_path = LOCAL_IMAGES.get(image_key)
+            if image_path and os.path.exists(image_path):
+                with open(image_path, 'rb') as photo:
+                    bot.send_photo(
+                        chat_id,
+                        photo,
+                        caption=text,
+                        parse_mode="HTML",
+                        disable_web_page_preview=True
+                    )
+                return True
+        else:
+            # Отправка по URL
+            image_url = IMAGES.get(image_key)
+            if image_url:
+                bot.send_photo(
+                    chat_id,
+                    image_url,
+                    caption=text,
+                    parse_mode="HTML",
+                    disable_web_page_preview=True
+                )
+                return True
+        
+        # Если изображение не найдено - отправляем только текст
+        bot.send_message(
+            chat_id,
+            text,
+            parse_mode="HTML",
+            disable_web_page_preview=True
+        )
+        return False
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка отправки изображения: {e}")
+        # Fallback - отправляем только текст
+        bot.send_message(
+            chat_id,
+            text,
+            parse_mode="HTML",
+            disable_web_page_preview=True
+        )
+        return False
 
 # 🌐 Webhook обработчик
 @app.route(f'/{TOKEN}', methods=['POST'])
@@ -135,14 +196,15 @@ def handle_buttons(message):
             "💰 Платная": "paid_text",
             "🆓 Бесплатная": "free_text"
         }
+        
         if message.text in button_mapping:
-            content = texts.get(button_mapping[message.text], "Контент недоступен")
-            bot.send_message(
-                message.chat.id,
-                content,
-                parse_mode="HTML",
-                disable_web_page_preview=True
-            )
+            content_key = button_mapping[message.text]
+            content = texts.get(content_key, "Контент недоступен")
+            
+            # Отправляем сообщение с изображением
+            # Измените use_local=True если хотите использовать локальные файлы
+            send_message_with_image(message.chat.id, content, content_key, use_local=False)
+            
         else:
             markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
             markup.add("💰 Платная", "🆓 Бесплатная")
