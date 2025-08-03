@@ -34,16 +34,18 @@ class ContentManager:
         os.makedirs(self.texts_dir, exist_ok=True)
         os.makedirs(self.images_dir, exist_ok=True)
     
-    def load_text(self, filename):
+    def load_html(self, filename):
+        """Загружает HTML-контент из файла"""
         try:
-            path = os.path.join(self.texts_dir, f"{filename}.md")
+            path = os.path.join(self.texts_dir, f"{filename}.html")
             with open(path, encoding='utf-8') as f:
                 return f.read()
         except Exception as e:
-            logger.error(f"Error loading text {filename}: {e}")
-            return f"⚠️ Content '{filename}' not available"
+            logger.error(f"Error loading HTML {filename}: {e}")
+            return f"<b>⚠️ Content '{filename}' not available</b>"
     
     def get_image_path(self, image_name):
+        """Возвращает путь к изображению"""
         path = os.path.join(self.images_dir, f"{image_name}.jpg")
         return path if os.path.exists(path) else None
 
@@ -78,7 +80,10 @@ def setup_webhook():
         logger.error(f"Webhook setup error: {e}")
         return False
 
-# Команды бота
+# ====================
+# ОСНОВНЫЕ КОМАНДЫ
+# ====================
+
 @bot.message_handler(commands=['start'])
 def start(message):
     try:
@@ -92,24 +97,29 @@ def start(message):
         ]
         markup.add(*buttons)
         
-        welcome_text = content.load_text('welcome') or "Добро пожаловать!"
+        html_content = content.load_html('welcome')
         bot.send_message(
             message.chat.id,
-            welcome_text,
+            html_content,
             reply_markup=markup,
             parse_mode="HTML"
         )
     except Exception as e:
         logger.error(f"Start command error: {e}")
 
-# Обработчики кнопок
+# ====================
+# ОБРАБОТЧИКИ КНОПОК
+# ====================
+
 @bot.message_handler(func=lambda m: m.text == "🏥 Стерилизация")
 def sterilization_menu(message):
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     markup.add("💰 Платная", "🆓 Бесплатная", "🔙 Назад")
+    
+    html_content = content.load_html('sterilization_menu')
     bot.send_message(
         message.chat.id,
-        content.load_text('sterilization_menu'),
+        html_content,
         reply_markup=markup,
         parse_mode="HTML"
     )
@@ -117,7 +127,7 @@ def sterilization_menu(message):
 @bot.message_handler(func=lambda m: m.text in ["💰 Платная", "🆓 Бесплатная"])
 def sterilization_info(message):
     content_type = "paid" if message.text == "💰 Платная" else "free"
-    text = content.load_text(f'sterilization_{content_type}')
+    html_content = content.load_html(f'sterilization_{content_type}')
     image_path = content.get_image_path(content_type)
     
     try:
@@ -126,21 +136,80 @@ def sterilization_info(message):
                 bot.send_photo(
                     message.chat.id,
                     photo,
-                    caption=text,
+                    caption=html_content,
                     parse_mode="HTML"
                 )
         else:
             bot.send_message(
                 message.chat.id,
-                text,
+                html_content,
                 parse_mode="HTML"
             )
     except Exception as e:
         logger.error(f"Error sending {content_type} info: {e}")
 
-# Запуск
+@bot.message_handler(func=lambda m: m.text == "🏠 Пристройство")
+def adoption_menu(message):
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    markup.add("👶 Котята", "🐱 Взрослые", "📝 Подать заявку", "🔙 Назад")
+    
+    html_content = content.load_html('adoption_menu')
+    bot.send_message(
+        message.chat.id,
+        html_content,
+        reply_markup=markup,
+        parse_mode="HTML"
+    )
+
+@bot.message_handler(func=lambda m: m.text == "🚨 Помощь")
+def emergency_help(message):
+    html_content = content.load_html('emergency_help')
+    bot.send_message(
+        message.chat.id,
+        html_content,
+        parse_mode="HTML",
+        disable_web_page_preview=True
+    )
+
+@bot.message_handler(func=lambda m: m.text == "🔙 Назад")
+def back_to_main(message):
+    start(message)
+
+# ====================
+# ЗАПУСК СЕРВЕРА
+# ====================
+
 if __name__ == '__main__':
     logger.info("Starting bot...")
+    
+    # Проверка структуры папок
+    required_dirs = [
+        content.texts_dir,
+        content.images_dir
+    ]
+    
+    for directory in required_dirs:
+        if not os.path.exists(directory):
+            logger.warning(f"Directory {directory} does not exist! Creating...")
+            os.makedirs(directory)
+    
+    # Проверка обязательных HTML-файлов
+    required_html = [
+        'welcome',
+        'sterilization_menu',
+        'sterilization_paid',
+        'sterilization_free',
+        'adoption_menu',
+        'emergency_help'
+    ]
+    
+    for html_file in required_html:
+        path = os.path.join(content.texts_dir, f"{html_file}.html")
+        if not os.path.exists(path):
+            logger.error(f"Required HTML file missing: {path}")
+            with open(path, 'w', encoding='utf-8') as f:
+                f.write(f"<b>Placeholder for {html_file}</b>")
+    
     if WEBHOOK_URL and setup_webhook():
         app.run(host='0.0.0.0', port=PORT)
     else:
