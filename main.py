@@ -1,12 +1,12 @@
 import os
+import time
+import logging
+from datetime import datetime
+from functools import lru_cache
+
 import telebot
 from telebot import types
 from flask import Flask, request
-from datetime import datetime
-import time
-import logging
-import signal
-from functools import lru_cache
 
 # 🔧 Настройка логирования
 logging.basicConfig(
@@ -15,269 +15,132 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# 👤 Настройки админов (ЗАМЕНИТЕ НА ВАШИ TELEGRAM ID)
-ADMIN_IDS = [123456789]  # Добавьте ваш реальный Telegram ID
-
-# 📄 Динамическая загрузка текста из HTML-файлов
-def load_text(filename):
-    try:
-        path = os.path.join("assets", filename)
-        with open(path, encoding="utf-8") as f:
-            return f.read()
-    except FileNotFoundError:
-        logger.error(f"❌ Файл {filename} не найден!")
-        return f"Контент из {filename} недоступен"
-    except Exception as e:
-        logger.error(f"❌ Ошибка загрузки {filename}: {e}")
-        return "Ошибка загрузки контента"
-
-def load_all_texts():
-    texts = {}
-    assets_dir = "assets"
-    
-    if not os.path.exists(assets_dir):
-        logger.warning(f"📁 Папка {assets_dir} не найдена!")
-        return texts
-    
-    try:
-        for filename in os.listdir(assets_dir):
-            if filename.endswith('.html'):
-                key = filename.replace('.html', '')
-                texts[key] = load_text(filename)
-                logger.info(f"✅ Загружен файл: {filename} -> {key}")
-        return texts
-    except Exception as e:
-        logger.error(f"❌ Ошибка загрузки файлов: {e}")
-        return texts
-
-# 🖼️ Конфигурация изображений
-IMAGES = {
-    'paid_text': 'https://via.placeholder.com/400x300/FFD700/000000?text=💰+Платная+стерилизация',
-    'free_text': 'https://via.placeholder.com/400x300/32CD32/FFFFFF?text=🆓+Бесплатная+стерилизация',
-    'emergency_help': 'https://via.placeholder.com/400x300/FF6B6B/FFFFFF?text=🚨+Экстренная+помощь',
-    'contacts': 'https://via.placeholder.com/400x300/4ECDC4/FFFFFF?text=📞+Контакты',
-    'about_project': 'https://via.placeholder.com/400x300/45B7D1/FFFFFF?text=ℹ️+О+проекте',
-    'adoption_info': 'https://via.placeholder.com/400x300/FFA07A/000000?text=📝+Пристройство'
-}
-
-# 🗂️ Загрузка всех текстов
-texts = load_all_texts()
-
-# ⚙️ Конфигурация
+# Конфигурация
 TOKEN = os.environ.get('TOKEN')
-if not TOKEN:
-    logger.error("❌ Ошибка: Переменная TOKEN не найдена!")
-    exit(1)
-
+WEBHOOK_URL = os.environ.get('WEBHOOK_URL')  # Без https:// в начале
 PORT = int(os.environ.get('PORT', 8080))
+ADMIN_IDS = [123456789]  # Замените на ваш Telegram ID
 
-WEBHOOK_URL = (
-    os.environ.get('RAILWAY_STATIC_URL') or 
-    os.environ.get('RAILWAY_PUBLIC_DOMAIN') or
-    os.environ.get('WEBHOOK_URL')
-)
-
-# 📡 Настройки для чтения канала
-CHANNEL_USERNAME = 'Lapki_ruchki_Yalta_help'
-
+# Инициализация
 bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
 
-# 🔍 Отладочная информация
-logger.info(f"🔍 TOKEN: {TOKEN[:10]}...{TOKEN[-5:]}")
-logger.info(f"🔍 WEBHOOK_URL: {WEBHOOK_URL}")
-logger.info(f"🔍 PORT: {PORT}")
-logger.info(f"📁 Загружено файлов: {len(texts)}")
-
-# 🖼️ Функция отправки сообщения с изображением
-def send_message_with_image(chat_id, text, image_key):
+# 🗂️ Загрузка текстовых файлов
+def load_text(filename):
     try:
-        image_url = IMAGES.get(image_key)
-        if image_url:
-            bot.send_photo(
-                chat_id,
-                image_url,
-                caption=text,
-                parse_mode="HTML",
-                disable_web_page_preview=True
-            )
-            return True
-        
-        # Если изображение не найдено - отправляем только текст
-        bot.send_message(
-            chat_id,
-            text,
-            parse_mode="HTML",
-            disable_web_page_preview=True
-        )
-        return False
-        
+        with open(f"assets/{filename}", "r", encoding="utf-8") as f:
+            return f.read()
     except Exception as e:
-        logger.error(f"❌ Ошибка отправки изображения: {e}")
-        # Fallback - отправляем только текст
-        bot.send_message(
-            chat_id,
-            text,
-            parse_mode="HTML",
-            disable_web_page_preview=True
-        )
-        return False
+        logger.error(f"❌ Ошибка загрузки {filename}: {e}")
+        return f"Текст {filename} недоступен"
 
-# 🏠 Функция получения постов о пристройстве с кэшированием
-@lru_cache(maxsize=1)
-def get_adoption_posts():
-    """Получает тестовые посты о пристройстве"""
-    return [
-        {
-            'title': '🐱 Котенок из канала @Lapki_ruchki_Yalta_help',
-            'description': 'Возраст: 2 месяца\nПол: мальчик\nОкрас: рыжий\nЗдоров, ищет дом\n\n📋 Для получения реальных данных нужно настроить Telegram API',
-            'photo': 'https://via.placeholder.com/400x300/FFB6C1/800080?text=🐱+Котенок',
-            'contact': '@Lapki_ruchki_Yalta_help',
-            'date': datetime.now().strftime('%d.%m.%Y')
-        },
-        {
-            'title': '😺 Кошечка ищет дом',
-            'description': 'Возраст: 1 год\nПол: девочка\nОкрас: трехцветная\nСтерилизована, ласковая',
-            'photo': 'https://via.placeholder.com/400x300/98FB98/006400?text=😺+Кошечка',
-            'contact': '@Lapki_ruchki_Yalta_help',
-            'date': datetime.now().strftime('%d.%m.%Y')
-        },
-        {
-            'title': '🐈 Взрослый кот',
-            'description': 'Возраст: 3 года\nПол: мальчик\nОкрас: серый полосатый\nСпокойный, подходит для квартиры',
-            'photo': 'https://via.placeholder.com/400x300/87CEEB/000080?text=🐈+Кот',
-            'contact': '@Lapki_ruchki_Yalta_help',
-            'date': datetime.now().strftime('%d.%m.%Y')
-        }
-    ]
+texts = {
+    "paid_text": load_text("paid_text.html"),
+    "free_text": load_text("free_text.html")
+}
+
+# 🖼️ Изображения для кнопок
+IMAGES = {
+    'paid_text': 'https://via.placeholder.com/400x300/FFD700/000000?text=💰+Платная+стерилизация',
+    'free_text': 'https://via.placeholder.com/400x300/32CD32/FFFFFF?text=🆓+Бесплатная+стерилизация'
+}
 
 # 🌐 Webhook обработчик
-@app.route('/', methods=['POST'])
+@app.route(f'/{TOKEN}', methods=['POST'])
 def webhook():
-    try:
-        if request.headers.get('content-type') == 'application/json':
-            json_string = request.get_data().decode('utf-8')
-            update = telebot.types.Update.de_json(json_string)
+    if request.headers.get('content-type') == 'application/json':
+        try:
+            json_data = request.get_data().decode('utf-8')
+            update = telebot.types.Update.de_json(json_data)
             bot.process_new_updates([update])
-            logger.info(f"✅ Обработано обновление от пользователя")
             return '', 200
-        else:
-            logger.warning(f"❌ Неправильный content-type: {request.headers.get('content-type')}")
-            return 'Bad request', 400
-    except Exception as e:
-        logger.error(f"❌ Ошибка webhook: {e}")
-        return 'Internal error', 500
+        except Exception as e:
+            logger.error(f"❌ Webhook error: {e}")
+            return 'Internal error', 500
+    return 'Bad request', 400
 
+# 🏠 Главная страница
 @app.route('/')
 def home():
-    return {
-        "status": "🤖 Bot is running!",
-        "time": datetime.now().strftime('%H:%M:%S'),
-        "date": datetime.now().strftime('%d.%m.%Y'),
-        "bot": "@CatYalta_bot",
-        "webhook": f"https://{WEBHOOK_URL}/{TOKEN}" if WEBHOOK_URL else "Not configured",
-        "loaded_files": list(texts.keys()),
-        "webhook_endpoint": f"/{TOKEN}"
-    }
+    return {"status": "Bot is running", "time": datetime.now().isoformat()}
 
-@app.route('/health')
-def health():
-    return {
-        "status": "ok", 
-        "time": datetime.now().isoformat(),
-        "bot_info": "Telegram Bot Active",
-        "webhook_configured": bool(WEBHOOK_URL)
-    }
-
-# Дополнительный endpoint для проверки
-@app.route('/webhook-test')
-def webhook_test():
+# 🔄 Установка webhook при старте
+def setup_webhook():
+    if not WEBHOOK_URL:
+        logger.warning("❌ WEBHOOK_URL не задан!")
+        return False
+    
     try:
-        webhook_info = bot.get_webhook_info()
-        return {
-            "webhook_url": webhook_info.url,
-            "pending_updates": webhook_info.pending_update_count,
-            "last_error": webhook_info.last_error_message,
-            "last_error_date": webhook_info.last_error_date
-        }
+        bot.remove_webhook()
+        time.sleep(1)
+        webhook_url = f"https://{WEBHOOK_URL}/{TOKEN}"
+        bot.set_webhook(url=webhook_url)
+        logger.info(f"✅ Webhook установлен: {webhook_url}")
+        return True
     except Exception as e:
-        return {"error": str(e)}, 500
+        logger.error(f"❌ Ошибка webhook: {e}")
+        return False
 
-# 🎬 Стартовая команда
+# 🎬 Команда /start
 @bot.message_handler(commands=['start'])
 def start(message):
     try:
         markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-        markup.add("🏥 Стерилизация", "🏠 Пристройство")
-        markup.add("🚨 Экстренная помощь", "📞 Контакты")
-        markup.add("ℹ️ О проекте")
+        buttons = ["🏥 Стерилизация", "🏠 Пристройство", "🚨 Помощь"]
+        markup.add(*buttons)
+        
         bot.send_message(
-            message.chat.id, 
-            "👋 <b>Добро пожаловать в помощник по уличным кошкам!</b>\n\n🐾 Выберите нужный раздел:",
-            reply_markup=markup,
-            parse_mode="HTML"
+            message.chat.id,
+            "👋 Добро пожаловать в бота-помощника!",
+            reply_markup=markup
         )
-        logger.info(f"👤 Новый пользователь: {message.from_user.id}")
     except Exception as e:
         logger.error(f"❌ Ошибка в /start: {e}")
-        bot.send_message(message.chat.id, "Произошла ошибка. Попробуйте еще раз.")
 
 # 📊 Статус бота
 @bot.message_handler(commands=['status'])
 def status(message):
+    webhook_info = bot.get_webhook_info()
+    status_text = (
+        f"🤖 Статус бота:\n"
+        f"• Webhook: {webhook_info.url or 'не настроен'}\n"
+        f"• Ожидающие сообщения: {webhook_info.pending_update_count}\n"
+        f"• Последняя ошибка: {webhook_info.last_error_message or 'нет'}"
+    )
+    bot.send_message(message.chat.id, status_text)
+
+# 🖼️ Отправка сообщения с изображением
+def send_message_with_image(chat_id, text_key):
+    text = texts.get(text_key, "Текст недоступен")
+    image_url = IMAGES.get(text_key)
+    
     try:
-        now = datetime.now().strftime('%d.%m.%Y %H:%M:%S')
-        webhook_status = "✅ Настроен" if WEBHOOK_URL else "❌ Не настроен"
-        
-        # Получаем информацию о webhook
-        webhook_info = bot.get_webhook_info()
-        
-        status_text = f"""🤖 <b>Статус бота @CatYalta_bot</b>
-
-✅ Бот активен
-⏰ Время: <code>{now}</code>
-🆔 Ваш ID: <code>{message.from_user.id}</code>
-🌐 Webhook: {webhook_status}
-
-📊 <b>Информация о webhook:</b>
-🔗 URL: <code>{webhook_info.url or 'не установлен'}</code>
-📬 Ожидающие обновления: <code>{webhook_info.pending_update_count}</code>
-📁 Загружено файлов: <code>{len(texts)}</code>"""
-
-        if webhook_info.last_error_date:
-            error_date = datetime.fromtimestamp(webhook_info.last_error_date)
-            status_text += f"\n⚠️ Последняя ошибка: <code>{webhook_info.last_error_message}</code>"
-            status_text += f"\n📅 Время ошибки: <code>{error_date.strftime('%d.%m.%Y %H:%M:%S')}</code>"
-
-        bot.send_message(message.chat.id, status_text, parse_mode="HTML")
+        if image_url:
+            bot.send_photo(chat_id, image_url, caption=text)
+        else:
+            bot.send_message(chat_id, text)
     except Exception as e:
-        logger.error(f"❌ Ошибка в /status: {e}")
-        bot.send_message(message.chat.id, "Ошибка получения статуса.")
+        logger.error(f"❌ Ошибка отправки сообщения: {e}")
 
-# 🔧 Команда для отладки (только для админов)
-@bot.message_handler(commands=['debug'])
-def debug_info(message):
-    try:
-        if message.from_user.id not in ADMIN_IDS:
-            bot.send_message(message.chat.id, "❌ Недостаточно прав")
-            return
-            
-        debug_text = f"""🔧 <b>Отладочная информация</b>
+# 🏥 Обработчик кнопки "Стерилизация"
+@bot.message_handler(func=lambda m: m.text == "🏥 Стерилизация")
+def handle_sterilization(message):
+    send_message_with_image(message.chat.id, "paid_text")
 
-🌐 <b>Webhook:</b>
-• URL: <code>{WEBHOOK_URL or 'НЕ УСТАНОВЛЕН'}</code>
-• Полный URL: <code>https://{WEBHOOK_URL}/{TOKEN[:10]}...</code>
+# 🏠 Обработчик кнопки "Пристройство"
+@bot.message_handler(func=lambda m: m.text == "🏠 Пристройство")
+def handle_adoption(message):
+    send_message_with_image(message.chat.id, "free_text")
 
-📁 <b>Загруженные файлы:</b>"""
-        
-        for key in texts.keys():
-            debug_text += f"\n• {key}.html: ✅"
-            
-        if not texts:
-            debug_text += "\n❌ Файлы не загружены"
-            
-        bot.send_message(message.chat.id, debug_text, parse_mode="HTML")
-    except Exception as e:
-        logger.error(f"❌ Ошибка в /debug: {e}")
-        bot.send_message(message.chat.id, "Ошибка отладки.")
-
+# 🚀 Запуск приложения
+if __name__ == '__main__':
+    logger.info("🔄 Инициализация бота...")
+    logger.info(f"📁 Загружено текстов: {len(texts)}")
+    
+    if WEBHOOK_URL:
+        setup_webhook()
+        app.run(host='0.0.0.0', port=PORT)
+    else:
+        logger.info("🚫 Режим webhook отключен, запуск polling...")
+        bot.remove_webhook()
+        bot.polling(none_stop=True)
