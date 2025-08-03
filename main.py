@@ -53,21 +53,32 @@ IMAGES = {
     'free_text': 'https://via.placeholder.com/400x300/32CD32/FFFFFF?text=🆓+Бесплатная+стерилизация'
 }
 
-# 🌐 Webhook обработчик (с защитой от DDoS)
+# 🌐 Webhook обработчик (исправленный)
 @app.route(f'/{TOKEN}', methods=['POST'])
 @limiter.limit("5 per second")
 def webhook():
-    if not request.json or 'message' not in request.json:
-        logger.warning("Получен некорректный запрос")
-        return 'Bad request', 400
-
-    try:
-        update = telebot.types.Update.de_json(request.json)
-        bot.process_new_updates([update])
-        return '', 200
-    except Exception as e:
-        logger.error(f"❌ Webhook error: {e}")
-        return 'Internal error', 500
+    if request.headers.get('content-type') == 'application/json':
+        try:
+            json_string = request.get_data().decode('utf-8')
+            update = telebot.types.Update.de_json(json_string)
+            
+            # Обрабатываем как callback_query если есть
+            if update.callback_query:
+                bot.process_new_updates([update])
+                return '', 200
+                
+            # Обрабатываем обычные сообщения
+            if update.message:
+                bot.process_new_updates([update])
+                return '', 200
+                
+            logger.warning("Неизвестный тип обновления")
+            return 'Bad request', 400
+            
+        except Exception as e:
+            logger.error(f"❌ Webhook error: {e}")
+            return 'Internal error', 500
+    return 'Bad request', 400
 
 # 🏠 Главная страница
 @app.route('/')
@@ -126,10 +137,12 @@ def start(message):
         logger.error(f"❌ Ошибка в /start: {e}")
         bot.reply_to(message, "⚠️ Произошла ошибка. Попробуйте позже.")
 
-# 🔘 Обработчик инлайн-кнопок
+# 🔘 Обработчик инлайн-кнопок (улучшенный)
 @bot.callback_query_handler(func=lambda call: True)
 def handle_buttons(call):
     try:
+        logger.info(f"Нажата кнопка: {call.data}")
+        
         if call.data == "free":
             send_message_with_image(call.message.chat.id, "free_text")
         elif call.data == "paid":
@@ -137,9 +150,12 @@ def handle_buttons(call):
         elif call.data == "about":
             bot.send_message(call.message.chat.id, "🐾 Проект помощи бездомным кошкам Ялты")
         
-        bot.answer_callback_query(call.id)  # Убираем "часики" у кнопки
+        # Обязательно отвечаем на callback
+        bot.answer_callback_query(call.id, text="✅ Готово")
+        
     except Exception as e:
         logger.error(f"❌ Ошибка обработки кнопки {call.data}: {e}")
+        bot.answer_callback_query(call.id, text="⚠️ Ошибка. Попробуйте позже.", show_alert=True)
 
 # 🖼️ Отправка сообщения с изображением
 def send_message_with_image(chat_id, text_key):
@@ -153,7 +169,7 @@ def send_message_with_image(chat_id, text_key):
             bot.send_message(chat_id, text, parse_mode="HTML")
     except Exception as e:
         logger.error(f"❌ Ошибка отправки {text_key}: {e}")
-        raise  # Пробрасываем ошибку для обработки выше
+        raise
 
 # 🔧 Команда для админов
 @bot.message_handler(commands=['admin'])
