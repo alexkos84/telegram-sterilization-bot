@@ -5,8 +5,10 @@ from flask import Flask, request
 from datetime import datetime
 import time
 import logging
+import requests
+import json
 
-# 🔧 Настройка логирования (перенесено вверх)
+# 🔧 Настройка логирования
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -47,11 +49,11 @@ def load_all_texts():
 
 # 🖼️ Конфигурация изображений
 IMAGES = {
-    'paid_text': 'https://example.com/paid_sterilization.jpg',  # Замените на реальную ссылку
-    'free_text': 'https://example.com/free_sterilization.jpg'   # Замените на реальную ссылку
+    'paid_text': 'https://via.placeholder.com/400x300/FFD700/000000?text=💰+Платная+стерилизация',
+    'free_text': 'https://via.placeholder.com/400x300/32CD32/FFFFFF?text=🆓+Бесплатная+стерилизация'
 }
 
-# Альтернативно - локальные файлы в папке assets/images/
+# Локальные файлы (если нужно)
 LOCAL_IMAGES = {
     'paid_text': os.path.join('assets', 'images', 'paid.jpg'),
     'free_text': os.path.join('assets', 'images', 'free.jpg')
@@ -75,8 +77,16 @@ WEBHOOK_URL = (
     os.environ.get('WEBHOOK_URL')
 )
 
+# 📡 Настройки для чтения канала (опционально)
+CHANNEL_USERNAME = 'Lapki_ruchki_Yalta_help'
+
 bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
+
+# 🔍 Отладочная информация
+logger.info(f"🔍 TOKEN: {TOKEN[:10]}...{TOKEN[-5:]}")
+logger.info(f"🔍 WEBHOOK_URL: {WEBHOOK_URL}")
+logger.info(f"🔍 PORT: {PORT}")
 
 # 🖼️ Функция отправки сообщения с изображением
 def send_message_with_image(chat_id, text, image_key, use_local=False):
@@ -127,6 +137,33 @@ def send_message_with_image(chat_id, text, image_key, use_local=False):
         )
         return False
 
+# 🏠 Функция получения постов о пристройстве
+def get_adoption_posts():
+    """Получает тестовые посты о пристройстве"""
+    return [
+        {
+            'title': '🐱 Котенок из канала @Lapki_ruchki_Yalta_help',
+            'description': 'Возраст: 2 месяца\nПол: мальчик\nОкрас: рыжий\nЗдоров, ищет дом\n\n📋 Для получения реальных данных нужно настроить Telegram API',
+            'photo': 'https://via.placeholder.com/400x300/FFB6C1/800080?text=🐱+Котенок',
+            'contact': '@Lapki_ruchki_Yalta_help',
+            'date': datetime.now().strftime('%d.%m.%Y')
+        },
+        {
+            'title': '😺 Кошечка ищет дом',
+            'description': 'Возраст: 1 год\nПол: девочка\nОкрас: трехцветная\nСтерилизована, ласковая',
+            'photo': 'https://via.placeholder.com/400x300/98FB98/006400?text=😺+Кошечка',
+            'contact': '@Lapki_ruchki_Yalta_help',
+            'date': datetime.now().strftime('%d.%m.%Y')
+        },
+        {
+            'title': '🐈 Взрослый кот',
+            'description': 'Возраст: 3 года\nПол: мальчик\nОкрас: серый полосатый\nСпокойный, подходит для квартиры',
+            'photo': 'https://via.placeholder.com/400x300/87CEEB/000080?text=🐈+Кот',
+            'contact': '@Lapki_ruchki_Yalta_help',
+            'date': datetime.now().strftime('%d.%m.%Y')
+        }
+    ]
+
 # 🌐 Webhook обработчик
 @app.route(f'/{TOKEN}', methods=['POST'])
 def webhook():
@@ -146,7 +183,9 @@ def home():
     return {
         "status": "🤖 Bot is running!",
         "time": datetime.now().strftime('%H:%M:%S'),
-        "date": datetime.now().strftime('%d.%m.%Y')
+        "date": datetime.now().strftime('%d.%m.%Y'),
+        "bot": "@CatYalta_bot",
+        "webhook": f"https://{WEBHOOK_URL}/{TOKEN}" if WEBHOOK_URL else "Not configured"
     }
 
 @app.route('/health')
@@ -181,40 +220,15 @@ def start(message):
 def status(message):
     try:
         now = datetime.now().strftime('%d.%m.%Y %H:%M:%S')
+        webhook_status = "✅ Настроен" if WEBHOOK_URL else "❌ Не настроен"
         bot.send_message(
             message.chat.id,
-            f"🤖 <b>Статус бота</b>\n\n✅ Бот активен\n⏰ Время: <code>{now}</code>\n🆔 Ваш ID: <code>{message.from_user.id}</code>",
+            f"🤖 <b>Статус бота @CatYalta_bot</b>\n\n✅ Бот активен\n⏰ Время: <code>{now}</code>\n🆔 Ваш ID: <code>{message.from_user.id}</code>\n🌐 Webhook: {webhook_status}",
             parse_mode="HTML"
         )
     except Exception as e:
         logger.error(f"❌ Ошибка в /status: {e}")
         bot.send_message(message.chat.id, "Ошибка получения статуса.")
-
-# 🏠 Функция получения постов о пристройстве (заглушка)
-def get_adoption_posts():
-    """Получает последние посты о пристройстве из канала"""
-    # TODO: Интеграция с реальным каналом
-    sample_posts = [
-        {
-            'title': '🐱 Котенок Мурзик ищет дом',
-            'description': 'Возраст: 2 месяца\nПол: мальчик\nОкрас: рыжий\nЗдоров, привит, кастрирован',
-            'photo': 'https://example.com/cat1.jpg',
-            'contact': '@volunteer1'
-        },
-        {
-            'title': '😺 Кошечка Муся',
-            'description': 'Возраст: 1 год\nПол: девочка\nОкрас: трехцветная\nСтерилизована, очень ласковая',
-            'photo': 'https://example.com/cat2.jpg',
-            'contact': '@volunteer2'
-        },
-        {
-            'title': '🐈 Кот Барсик',
-            'description': 'Возраст: 3 года\nПол: мальчик\nОкрас: серый полосатый\nСпокойный, подходит для квартиры',
-            'photo': 'https://example.com/cat3.jpg',
-            'contact': '@volunteer3'
-        }
-    ]
-    return sample_posts
 
 # 🎯 Обработка кнопок
 @bot.message_handler(func=lambda m: True)
@@ -227,7 +241,7 @@ def handle_buttons(message):
             markup.add("🔙 Назад")
             bot.send_message(
                 message.chat.id,
-                "🏥 <b>Стерилизация кошек</b>\n\nВыберите тип:",
+                "🏥 <b>Стерилизация кошек в Ялте</b>\n\nВыберите тип:",
                 reply_markup=markup,
                 parse_mode="HTML"
             )
@@ -244,12 +258,11 @@ def handle_buttons(message):
             )
             
         elif message.text == "🚨 Экстренная помощь":
-            emergency_text = texts.get('emergency_help', """
-🚨 <b>ЭКСТРЕННАЯ ПОМОЩЬ</b>
+            emergency_text = """🚨 <b>ЭКСТРЕННАЯ ПОМОЩЬ</b>
 
-🏥 <b>Круглосуточные клиники:</b>
-📞 Ветклиника "Доктор Айболит": <a href="tel:+79780000000">+7 978 000-00-00</a>
-📍 г. Ялта, ул. Примерная, 1
+🏥 <b>Круглосуточные клиники в Ялте:</b>
+📞 Ветклиника "Айболит": <a href="tel:+79781449070">+7 978 144-90-70</a>
+📍 г. Ялта, ул. Васильева, 7
 
 🆘 <b>При отравлении:</b>
 1️⃣ Не давайте воду и еду
@@ -262,8 +275,8 @@ def handle_buttons(message):
 3️⃣ Доставить к ветеринару
 
 📱 <b>Волонтеры онлайн:</b>
-Telegram: @emergency_help_cats
-""")
+Telegram: @Lapki_ruchki_Yalta_help"""
+            
             bot.send_message(
                 message.chat.id,
                 emergency_text,
@@ -272,23 +285,23 @@ Telegram: @emergency_help_cats
             )
             
         elif message.text == "📞 Контакты":
-            contacts_text = texts.get('contacts', """
-📞 <b>ВАЖНЫЕ КОНТАКТЫ</b>
+            contacts_text = """📞 <b>ВАЖНЫЕ КОНТАКТЫ</b>
 
 👥 <b>Координаторы волонтеров:</b>
 🔹 Екатерина (стерилизация): <a href="tel:+79781449070">+7 978 144-90-70</a>
 🔹 Анна (пристройство): <a href="tel:+79780000001">+7 978 000-00-01</a>
-🔹 Михаил (лечение): <a href="tel:+79780000002">+7 978 000-00-02</a>
 
 🏥 <b>Партнерские клиники:</b>
-🔹 "Айболит": <a href="tel:+79780000003">+7 978 000-00-03</a>
-🔹 "ВетМир": <a href="tel:+79780000004">+7 978 000-00-04</a>
+🔹 "Айболит": <a href="tel:+79781449070">+7 978 144-90-70</a>
+📍 г. Ялта, ул. Васильева, 7
 
 📱 <b>Социальные сети:</b>
-🔹 Telegram канал: @yalta_cats
-🔹 Instagram: @yalta_street_cats
-🔹 ВКонтакте: vk.com/yalta_cats
-""")
+🔹 Telegram канал: @Lapki_ruchki_Yalta_help
+🔹 Основной чат волонтеров
+
+💡 <b>Время работы:</b>
+Заявки на стерилизацию: 8:00-9:00 (кроме четверга)"""
+            
             bot.send_message(
                 message.chat.id,
                 contacts_text,
@@ -297,24 +310,27 @@ Telegram: @emergency_help_cats
             )
             
         elif message.text == "ℹ️ О проекте":
-            about_text = texts.get('about_project', """
-ℹ️ <b>О ПРОЕКТЕ "ПОМОЩЬ УЛИЧНЫМ КОШКАМ"</b>
+            about_text = """ℹ️ <b>О ПРОЕКТЕ "ПОМОЩЬ УЛИЧНЫМ КОШКАМ ЯЛТЫ"</b>
 
 🎯 <b>Наша миссия:</b>
 Помощь бездомным кошкам в Ялте и окрестностях
 
-📊 <b>Наши достижения:</b>
-🔹 Стерилизовано: 500+ кошек
-🔹 Пристроено: 200+ котят
-🔹 Волонтеров: 50+ активных
+📊 <b>Что мы делаем:</b>
+🔹 Бесплатная стерилизация
+🔹 Пристройство котят и кошек
+🔹 Лечение больных животных
+🔹 Кормление и уход
 
-💰 <b>Поддержать проект:</b>
-Карта Сбербанк: 2202 2020 0000 0000
-Яндекс.Деньги: 410011000000000
+👥 <b>Как помочь:</b>
+🔹 Стать волонтером
+🔹 Финансовая поддержка
+🔹 Репост объявлений
+🔹 Временная передержка
 
 🤝 <b>Присоединяйтесь:</b>
-Мы всегда рады новым волонтерам!
-""")
+@Lapki_ruchki_Yalta_help - наш канал
+Мы всегда рады новым волонтерам!"""
+            
             bot.send_message(
                 message.chat.id,
                 about_text,
@@ -334,33 +350,70 @@ Telegram: @emergency_help_cats
             
         # Пристройство
         elif message.text == "👶 Котята ищут дом":
-            posts = get_adoption_posts()
             bot.send_message(
                 message.chat.id,
-                "👶 <b>Котята ищут дом:</b>",
+                "👶 <b>Котята ищут дом из канала @Lapki_ruchki_Yalta_help:</b>\n\n⏳ Загружаем данные...",
                 parse_mode="HTML"
             )
             
-            for post in posts[:3]:  # Показываем первые 3
-                try:
-                    bot.send_photo(
-                        message.chat.id,
-                        post['photo'],
-                        caption=f"<b>{post['title']}</b>\n\n{post['description']}\n\n📞 Контакт: {post['contact']}",
-                        parse_mode="HTML"
-                    )
-                except:
-                    # Если фото не загружается, отправляем текст
-                    bot.send_message(
-                        message.chat.id,
-                        f"<b>{post['title']}</b>\n\n{post['description']}\n\n📞 Контакт: {post['contact']}",
-                        parse_mode="HTML"
-                    )
-                    
+            posts = get_adoption_posts()
+            
+            if posts:
+                bot.send_message(
+                    message.chat.id,
+                    f"📱 <b>Найдено {len(posts)} объявлений:</b>",
+                    parse_mode="HTML"
+                )
+                
+                for i, post in enumerate(posts[:3], 1):
+                    try:
+                        caption = f"<b>{post['title']}</b>\n\n{post['description']}\n\n📅 {post['date']}\n📞 Связаться: {post['contact']}"
+                        
+                        if post.get('photo'):
+                            bot.send_photo(
+                                message.chat.id,
+                                post['photo'],
+                                caption=caption,
+                                parse_mode="HTML"
+                            )
+                        else:
+                            bot.send_message(
+                                message.chat.id,
+                                caption,
+                                parse_mode="HTML"
+                            )
+                    except Exception as e:
+                        logger.error(f"❌ Ошибка отправки поста {i}: {e}")
+                        
+                # Ссылка на полный канал
+                markup = types.InlineKeyboardMarkup()
+                markup.add(types.InlineKeyboardButton(
+                    "📱 Смотреть все объявления в канале",
+                    url=f"https://t.me/{CHANNEL_USERNAME}"
+                ))
+                bot.send_message(
+                    message.chat.id,
+                    "👆 <b>Это только примеры</b>\n\nВсе актуальные объявления смотрите в канале:",
+                    reply_markup=markup,
+                    parse_mode="HTML"
+                )
+            else:
+                bot.send_message(
+                    message.chat.id,
+                    f"😔 Пока нет новых объявлений\n\n📱 Проверьте канал: @{CHANNEL_USERNAME}",
+                    parse_mode="HTML"
+                )
+                
         elif message.text == "🐱 Взрослые кошки":
+            markup = types.InlineKeyboardMarkup()
+            markup.add(types.InlineKeyboardButton(
+                "📱 Перейти в канал",
+                url=f"https://t.me/{CHANNEL_USERNAME}"
+            ))
             bot.send_message(
                 message.chat.id,
-                "🐱 <b>Взрослые кошки ищут дом</b>\n\n⏳ Раздел в разработке...\n\nА пока посмотрите котят! 👶",
+                "🐱 <b>Взрослые кошки ищут дом</b>\n\nВсе объявления о пристройстве взрослых кошек смотрите в нашем канале:",
+                reply_markup=markup,
                 parse_mode="HTML"
             )
             
@@ -370,10 +423,10 @@ Telegram: @emergency_help_cats
                 """📝 <b>Подать объявление о пристройстве</b>
 
 Для подачи объявления обратитесь к координатору:
-👤 Анна: <a href="tel:+79780000001">+7 978 000-00-01</a>
+👤 Екатерина: <a href="tel:+79781449070">+7 978 144-90-70</a>
 
 📋 <b>Подготовьте информацию:</b>
-🔹 Фото животного
+🔹 Фото животного (2-3 хороших снимка)
 🔹 Возраст, пол, окрас
 🔹 Особенности характера
 🔹 Здоровье (прививки, стерилизация)
@@ -383,7 +436,10 @@ Telegram: @emergency_help_cats
 ✅ Качественные фото в хорошем свете
 ✅ Подробное описание характера
 ✅ Честная информация о здоровье
-✅ Готовность отвечать на вопросы""",
+✅ Готовность отвечать на вопросы будущих хозяев
+
+📱 <b>Также можете написать напрямую в канал:</b>
+@Lapki_ruchki_Yalta_help""",
                 parse_mode="HTML",
                 disable_web_page_preview=True
             )
@@ -399,7 +455,7 @@ Telegram: @emergency_help_cats
             markup.add("ℹ️ О проекте")
             bot.send_message(
                 message.chat.id,
-                "❓ <b>Выберите раздел из меню:</b>\n\n🏥 Стерилизация\n🏠 Пристройство\n🚨 Экстренная помощь\n📞 Контакты\n\nили используйте команды: /start, /status",
+                "❓ <b>Выберите раздел из меню:</b>\n\n🏥 Стерилизация - информация о платной и бесплатной стерилизации\n🏠 Пристройство - котята и кошки ищут дом\n🚨 Экстренная помощь - контакты клиник\n📞 Контакты - связь с волонтерами\n\nили используйте команды: /start, /status",
                 reply_markup=markup,
                 parse_mode="HTML"
             )
@@ -410,27 +466,49 @@ Telegram: @emergency_help_cats
 # 🔄 Установка webhook
 def setup_webhook():
     try:
+        # Очищаем старый webhook
         bot.remove_webhook()
-        time.sleep(2)
+        time.sleep(3)
+        
         if not WEBHOOK_URL:
-            logger.error("❌ WEBHOOK_URL не задан!")
+            logger.error("❌ WEBHOOK_URL не задан! Проверьте переменную RAILWAY_STATIC_URL")
             return False
+            
         full_url = f"https://{WEBHOOK_URL}/{TOKEN}"
-        result = bot.set_webhook(url=full_url, max_connections=10)
+        
+        logger.info(f"🔗 Устанавливаем webhook: {full_url}")
+        
+        result = bot.set_webhook(
+            url=full_url, 
+            max_connections=10,
+            drop_pending_updates=True
+        )
+        
         if result:
-            logger.info(f"✅ Webhook установлен: {full_url}")
+            logger.info(f"✅ Webhook установлен успешно!")
+            # Проверяем webhook
+            webhook_info = bot.get_webhook_info()
+            logger.info(f"📊 Webhook URL: {webhook_info.url}")
+            logger.info(f"📊 Pending updates: {webhook_info.pending_update_count}")
             return True
         else:
             logger.error("❌ Не удалось установить webhook")
             return False
+            
     except Exception as e:
         logger.error(f"❌ Ошибка установки webhook: {e}")
         return False
 
 # 🚀 Запуск сервера
 if __name__ == "__main__":
-    logger.info("🚀 Запуск Telegram бота...")
+    logger.info("🚀 Запуск Telegram бота @CatYalta_bot...")
+    logger.info(f"🌐 URL: https://{WEBHOOK_URL}" if WEBHOOK_URL else "🌐 URL: не настроен")
+    
     if setup_webhook():
+        logger.info(f"🎯 Сервер запускается на порту {PORT}")
         app.run(host='0.0.0.0', port=PORT)
     else:
-        logger.error("🚨 Webhook не настроен. Проверь конфигурацию.")
+        logger.error("🚨 Webhook не настроен. Проверь конфигурацию:")
+        logger.error("1. Убедись что переменная TOKEN правильная")
+        logger.error("2. Добавь переменную RAILWAY_STATIC_URL с доменом")
+        logger.error("3. Перезапусти сервис")
