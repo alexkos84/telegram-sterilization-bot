@@ -5,6 +5,8 @@ from flask import Flask, request
 from datetime import datetime
 import time
 import logging
+import signal
+from functools import lru_cache
 
 # 🔧 Настройка логирования
 logging.basicConfig(
@@ -12,6 +14,9 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# 👤 Настройки админов (ЗАМЕНИТЕ НА ВАШИ TELEGRAM ID)
+ADMIN_IDS = [123456789]  # Добавьте ваш реальный Telegram ID
 
 # 📄 Динамическая загрузка текста из HTML-файлов
 def load_text(filename):
@@ -118,7 +123,8 @@ def send_message_with_image(chat_id, text, image_key):
         )
         return False
 
-# 🏠 Функция получения постов о пристройстве
+# 🏠 Функция получения постов о пристройстве с кэшированием
+@lru_cache(maxsize=1)
 def get_adoption_posts():
     """Получает тестовые посты о пристройстве"""
     return [
@@ -252,10 +258,7 @@ def status(message):
 @bot.message_handler(commands=['debug'])
 def debug_info(message):
     try:
-        # Простая проверка на админа (замените на ваш ID)
-        admin_ids = [message.from_user.id]  # Добавьте свой Telegram ID
-        
-        if message.from_user.id not in admin_ids:
+        if message.from_user.id not in ADMIN_IDS:
             bot.send_message(message.chat.id, "❌ Недостаточно прав")
             return
             
