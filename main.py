@@ -152,7 +152,7 @@ def get_adoption_posts():
     ]
 
 # 🌐 Webhook обработчик
-@app.route(f'/{TOKEN}', methods=['POST'])
+@app.route('/', methods=['POST'])
 def webhook():
     try:
         if request.headers.get('content-type') == 'application/json':
@@ -280,3 +280,4 @@ def debug_info(message):
     except Exception as e:
         logger.error(f"❌ Ошибка в /debug: {e}")
         bot.send_message(message.chat.id, "Ошибка отладки.")
+
