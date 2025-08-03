@@ -7,8 +7,6 @@ from functools import lru_cache
 import telebot
 from telebot import types
 from flask import Flask, request
-from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
 
 # 🔧 Настройка логирования
 logging.basicConfig(
@@ -26,14 +24,8 @@ ADMIN_IDS = [123456789]  # Замените на ваш Telegram ID
 # Инициализация
 bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
-limiter = Limiter(
-    app=app,
-    key_func=get_remote_address,
-    default_limits=["200 per day", "50 per hour"]
-)
 
-# 🗂️ Загрузка текстовых файлов (с кэшированием)
-@lru_cache(maxsize=2)
+# 🗂️ Загрузка текстовых файлов
 def load_text(filename):
     try:
         with open(f"assets/{filename}", "r", encoding="utf-8") as f:
@@ -53,42 +45,26 @@ IMAGES = {
     'free_text': 'https://via.placeholder.com/400x300/32CD32/FFFFFF?text=🆓+Бесплатная+стерилизация'
 }
 
-# 🌐 Webhook обработчик (с защитой от DDoS)
+# 🌐 Webhook обработчик
 @app.route(f'/{TOKEN}', methods=['POST'])
-@limiter.limit("5 per second")
 def webhook():
-    if not request.json or 'message' not in request.json:
-        logger.warning("Получен некорректный запрос")
-        return 'Bad request', 400
-
-    try:
-        update = telebot.types.Update.de_json(request.json)
-        bot.process_new_updates([update])
-        return '', 200
-    except Exception as e:
-        logger.error(f"❌ Webhook error: {e}")
-        return 'Internal error', 500
+    if request.headers.get('content-type') == 'application/json':
+        try:
+            json_data = request.get_data().decode('utf-8')
+            update = telebot.types.Update.de_json(json_data)
+            bot.process_new_updates([update])
+            return '', 200
+        except Exception as e:
+            logger.error(f"❌ Webhook error: {e}")
+            return 'Internal error', 500
+    return 'Bad request', 400
 
 # 🏠 Главная страница
 @app.route('/')
 def home():
-    return {
-        "status": "Bot is running",
-        "time": datetime.now().isoformat(),
-        "webhook": f"https://{WEBHOOK_URL}/{TOKEN}" if WEBHOOK_URL else "None"
-    }
+    return {"status": "Bot is running", "time": datetime.now().isoformat()}
 
-# 📊 Статистика
-@app.route('/stats')
-def stats():
-    webhook_info = bot.get_webhook_info()
-    return {
-        "webhook_url": webhook_info.url,
-        "pending_updates": webhook_info.pending_update_count,
-        "last_error": webhook_info.last_error_message or "None"
-    }
-
-# 🔄 Установка webhook
+# 🔄 Установка webhook при старте
 def setup_webhook():
     if not WEBHOOK_URL:
         logger.warning("❌ WEBHOOK_URL не задан!")
@@ -105,87 +81,66 @@ def setup_webhook():
         logger.error(f"❌ Ошибка webhook: {e}")
         return False
 
-# 🎬 Команда /start с интерактивными кнопками
+# 🎬 Команда /start
 @bot.message_handler(commands=['start'])
 def start(message):
     try:
-        markup = types.InlineKeyboardMarkup()
-        markup.row(
-            types.InlineKeyboardButton("Бесплатная стерилизация", callback_data="free"),
-            types.InlineKeyboardButton("Платная стерилизация", callback_data="paid")
-        )
-        markup.row(types.InlineKeyboardButton("О проекте", callback_data="about"))
+        markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+        buttons = ["🏥 Стерилизация", "🏠 Пристройство", "🚨 Помощь"]
+        markup.add(*buttons)
         
         bot.send_message(
             message.chat.id,
-            "👋 Добро пожаловать в бота-помощника для кошек! Выберите опцию:",
+            "👋 Добро пожаловать в бота-помощника!",
             reply_markup=markup
         )
-        logger.info(f"👤 Пользователь {message.from_user.id} запустил бота")
     except Exception as e:
         logger.error(f"❌ Ошибка в /start: {e}")
-        bot.reply_to(message, "⚠️ Произошла ошибка. Попробуйте позже.")
 
-# 🔘 Обработчик инлайн-кнопок
-@bot.callback_query_handler(func=lambda call: True)
-def handle_buttons(call):
-    try:
-        if call.data == "free":
-            send_message_with_image(call.message.chat.id, "free_text")
-        elif call.data == "paid":
-            send_message_with_image(call.message.chat.id, "paid_text")
-        elif call.data == "about":
-            bot.send_message(call.message.chat.id, "🐾 Проект помощи бездомным кошкам Ялты")
-        
-        bot.answer_callback_query(call.id)  # Убираем "часики" у кнопки
-    except Exception as e:
-        logger.error(f"❌ Ошибка обработки кнопки {call.data}: {e}")
+# 📊 Статус бота
+@bot.message_handler(commands=['status'])
+def status(message):
+    webhook_info = bot.get_webhook_info()
+    status_text = (
+        f"🤖 Статус бота:\n"
+        f"• Webhook: {webhook_info.url or 'не настроен'}\n"
+        f"• Ожидающие сообщения: {webhook_info.pending_update_count}\n"
+        f"• Последняя ошибка: {webhook_info.last_error_message or 'нет'}"
+    )
+    bot.send_message(message.chat.id, status_text)
 
 # 🖼️ Отправка сообщения с изображением
 def send_message_with_image(chat_id, text_key):
+    text = texts.get(text_key, "Текст недоступен")
+    image_url = IMAGES.get(text_key)
+    
     try:
-        text = texts.get(text_key, "Текст временно недоступен")
-        image_url = IMAGES.get(text_key)
-        
         if image_url:
-            bot.send_photo(chat_id, image_url, caption=text, parse_mode="HTML")
+            bot.send_photo(chat_id, image_url, caption=text)
         else:
-            bot.send_message(chat_id, text, parse_mode="HTML")
+            bot.send_message(chat_id, text)
     except Exception as e:
-        logger.error(f"❌ Ошибка отправки {text_key}: {e}")
-        raise  # Пробрасываем ошибку для обработки выше
+        logger.error(f"❌ Ошибка отправки сообщения: {e}")
 
-# 🔧 Команда для админов
-@bot.message_handler(commands=['admin'])
-def admin_panel(message):
-    if message.from_user.id not in ADMIN_IDS:
-        bot.reply_to(message, "❌ Доступ запрещен")
-        return
-    
-    markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton("Переустановить вебхук", callback_data="reset_webhook"))
-    
-    bot.send_message(
-        message.chat.id,
-        "⚙️ Панель администратора:",
-        reply_markup=markup
-    )
+# 🏥 Обработчик кнопки "Стерилизация"
+@bot.message_handler(func=lambda m: m.text == "🏥 Стерилизация")
+def handle_sterilization(message):
+    send_message_with_image(message.chat.id, "paid_text")
+
+# 🏠 Обработчик кнопки "Пристройство"
+@bot.message_handler(func=lambda m: m.text == "🏠 Пристройство")
+def handle_adoption(message):
+    send_message_with_image(message.chat.id, "free_text")
 
 # 🚀 Запуск приложения
 if __name__ == '__main__':
     logger.info("🔄 Инициализация бота...")
     logger.info(f"📁 Загружено текстов: {len(texts)}")
     
-    # Тестовая отправка уведомления админу
-    for admin_id in ADMIN_IDS:
-        try:
-            bot.send_message(admin_id, "🤖 Бот запущен!")
-        except Exception as e:
-            logger.error(f"❌ Не удалось уведомить админа {admin_id}: {e}")
-    
-    if WEBHOOK_URL and setup_webhook():
+    if WEBHOOK_URL:
+        setup_webhook()
         app.run(host='0.0.0.0', port=PORT)
     else:
-        logger.warning("🚫 Режим webhook отключен, запуск polling...")
+        logger.info("🚫 Режим webhook отключен, запуск polling...")
         bot.remove_webhook()
         bot.polling(none_stop=True)
