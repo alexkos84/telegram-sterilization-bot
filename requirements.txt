@@ -1,5 +1,9 @@
+
+# Основные зависимости для полной версии бота с Telethon
 pyTelegramBotAPI==4.14.0
-Flask==2.3.2
-gunicorn==21.2.0
+Flask==3.0.0
+requests==2.31.0
 beautifulsoup4==4.12.2
 
+# Telethon для работы с Telegram API
+Telethon==1.32.1
