@@ -7,6 +7,7 @@ import logging
 import requests
 from bs4 import BeautifulSoup
 import re
+from typing import List, Dict, Optional
 
 # Настройка логирования
 logging.basicConfig(
@@ -16,86 +17,114 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 class ChannelParser:
-    """Парсер канала для кошек и собак"""
+    """Парсер канала с фильтрацией по кошкам, собакам и товарам"""
+    
     def __init__(self):
         self.channel_username = 'Lapki_ruchki_Yalta_help'
         self.channel_url = f'https://t.me/{self.channel_username}'
         self.web_url = f'https://t.me/s/{self.channel_username}'
         self.headers = {'User-Agent': 'Mozilla/5.0'}
         self.posts_cache = []
-    
-    def get_posts(self, limit=5):
-        """Получение постов с фильтрацией"""
+        self.last_update = None
+
+    def get_posts(self, limit: int = 10) -> List[Dict]:
+        """Получение и фильтрация постов"""
         try:
-            response = requests.get(self.web_url, headers=self.headers)
-            soup = BeautifulSoup(response.text, 'html.parser')
-            
-            posts = []
-            for message in soup.find_all('div', class_='tgme_widget_message')[:limit*2]:
-                post = self._parse_message(message)
-                if post:
-                    posts.append(post)
-            
-            self.posts_cache = posts
-            return posts
-        
+            if self._should_update_cache():
+                response = requests.get(self.web_url, headers=self.headers, timeout=10)
+                soup = BeautifulSoup(response.text, 'html.parser')
+                self.posts_cache = [self._parse_post(post) for post in soup.find_all('div', class_='tgme_widget_message')[:20]]
+                self.last_update = datetime.now()
+
+            return self.posts_cache[:limit]
+
         except Exception as e:
             logger.error(f"Ошибка парсинга: {str(e)}")
             return self._get_mock_posts()
 
-    def _parse_message(self, message):
-        """Парсинг одного сообщения"""
+    def _should_update_cache(self) -> bool:
+        """Нужно ли обновлять кэш"""
+        return (not self.last_update or 
+                (datetime.now() - self.last_update).seconds > 1800)
+
+    def _parse_post(self, post) -> Optional[Dict]:
+        """Парсинг одного поста"""
         try:
-            text_div = message.find('div', class_='tgme_widget_message_text')
+            text_div = post.find('div', class_='tgme_widget_message_text')
             if not text_div:
                 return None
-                
+
             text = text_div.get_text('\n').strip()
-            is_cat = self._is_cat(text)
-            is_dog = self._is_dog(text)
-            
-            if not (is_cat or is_dog):
-                return None
-                
-            # Парсинг фото
-            photo_style = message.find('a', class_='tgme_widget_message_photo_wrap').get('style', '')
-            photo_url = re.search(r"url\('(.*?)'\)", photo_style).group(1) if photo_style else None
+            photo_url = self._extract_photo_url(post)
             
             return {
                 'text': text,
                 'photo_url': photo_url,
-                'is_cat': is_cat,
-                'is_dog': is_dog,
-                'date': message.find('time')['datetime'][:10]
+                'is_cat': self._is_cat(text),
+                'is_dog': self._is_dog(text),
+                'is_free': self._is_free(text),
+                'date': self._extract_date(post)
             }
-            
+
         except Exception as e:
-            logger.error(f"Ошибка парсинга сообщения: {str(e)}")
+            logger.error(f"Ошибка парсинга поста: {str(e)}")
             return None
-    
-    def _is_cat(self, text):
-        keywords = ['кот', 'кошк', 'котен', 'котик', 'мяу']
+
+    def _extract_photo_url(self, post) -> Optional[str]:
+        """Извлечение URL фото"""
+        photo_div = post.find('a', class_='tgme_widget_message_photo_wrap')
+        if photo_div and 'style' in photo_div.attrs:
+            match = re.search(r"url\('(.*?)'\)", photo_div['style'])
+            return match.group(1) if match else None
+        return None
+
+    def _extract_date(self, post) -> str:
+        """Извлечение даты"""
+        time_tag = post.find('time')
+        if time_tag and 'datetime' in time_tag.attrs:
+            return time_tag['datetime'][:10]
+        return "Недавно"
+
+    def _is_cat(self, text: str) -> bool:
+        keywords = ['кот', 'кошк', 'котен', 'котик', 'мур', 'мяу']
         return any(word in text.lower() for word in keywords)
-    
-    def _is_dog(self, text):
-        keywords = ['собака', 'щен', 'пес', 'пёс', 'гав']
+
+    def _is_dog(self, text: str) -> bool:
+        keywords = ['собака', 'щен', 'пес', 'пёс', 'гав', 'лай']
         return any(word in text.lower() for word in keywords)
-    
-    def _get_mock_posts(self):
+
+    def _is_free(self, text: str) -> bool:
+        keywords = [
+            'отдам', 'даром', 'бесплатно', 'лежанка', 'корм', 
+            'лоток', 'поводок', 'ошейник', 'лекарств', 'шлейк'
+        ]
+        return any(word in text.lower() for word in keywords)
+
+    def _get_mock_posts(self) -> List[Dict]:
         """Тестовые данные"""
         return [
             {
-                'text': "Котенок Мурзик ищет дом. Возраст 2 месяца.",
+                'text': "Котенок Мурзик ищет дом. Возраст 2 месяца, игривый.",
                 'photo_url': 'https://via.placeholder.com/600x400?text=Котенок',
                 'is_cat': True,
                 'is_dog': False,
+                'is_free': False,
                 'date': datetime.now().strftime('%Y-%m-%d')
             },
             {
-                'text': "Пес Барсик ищет хозяина. Взрослый, добрый.",
+                'text': "Пес Барсик. Взрослый, привит, ищет хозяина.",
                 'photo_url': 'https://via.placeholder.com/600x400?text=Собака',
                 'is_cat': False,
                 'is_dog': True,
+                'is_free': False,
+                'date': datetime.now().strftime('%Y-%m-%d')
+            },
+            {
+                'text': "Отдам даром лежанку для собаки. Состояние хорошее.",
+                'photo_url': 'https://via.placeholder.com/600x400?text=Лежанка',
+                'is_cat': False,
+                'is_dog': False,
+                'is_free': True,
                 'date': datetime.now().strftime('%Y-%m-%d')
             }
         ]
@@ -112,67 +141,85 @@ class PetsBot:
         
         # Регистрация обработчиков
         self.bot.message_handler(commands=['start'])(self.send_welcome)
-        self.bot.message_handler(func=lambda m: m.text == '🐱 Кошки')(self.send_cats)
-        self.bot.message_handler(func=lambda m: m.text == '🐶 Собаки')(self.send_dogs)
-        
+        self.bot.message_handler(func=lambda m: m.text in ['🐱 Кошки', '🐶 Собаки', '🎁 Отдам даром'])(self.handle_category)
+        self.bot.message_handler(func=lambda m: m.text == '🔙 Назад')(self.send_welcome)
+
+    def _create_keyboard(self, include_back: bool = True) -> types.ReplyKeyboardMarkup:
+        """Создание клавиатуры"""
+        markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+        markup.add('🐱 Кошки', '🐶 Собаки', '🎁 Отдам даром')
+        if include_back:
+            markup.add('🔙 Назад')
+        return markup
+
     def send_welcome(self, message):
         """Приветственное сообщение"""
-        markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-        markup.add('🐱 Кошки', '🐶 Собаки')
         self.bot.send_message(
             message.chat.id,
-            "🐾 Выберите раздел:",
-            reply_markup=markup
+            "🐾 <b>Помощник для животных Ялты</b>\n\n"
+            "Выберите категорию:",
+            parse_mode="HTML",
+            reply_markup=self._create_keyboard(include_back=False)
         )
-    
-    def send_animal_posts(self, chat_id, is_cat=True):
-        """Отправка постов с животными"""
-        animal_type = 'кошек' if is_cat else 'собак'
-        posts = [p for p in self.parser.get_posts() if p['is_cat'] == is_cat]
+
+    def handle_category(self, message):
+        """Обработчик категорий"""
+        if message.text == '🐱 Кошки':
+            self._send_posts(message.chat.id, 'кошек', lambda p: p['is_cat'])
+        elif message.text == '🐶 Собаки':
+            self._send_posts(message.chat.id, 'собак', lambda p: p['is_dog'])
+        elif message.text == '🎁 Отдам даром':
+            self._send_posts(message.chat.id, 'товаров', lambda p: p['is_free'])
+
+    def _send_posts(self, chat_id: int, category: str, filter_func):
+        """Отправка отфильтрованных постов"""
+        posts = [p for p in self.parser.get_posts() if filter_func(p)][:3]
         
         if not posts:
             self.bot.send_message(
                 chat_id,
-                f"😿 Нет объявлений о {animal_type}. Попробуйте позже!"
+                f"😿 Нет объявлений в категории '{category}'. Попробуйте позже!",
+                reply_markup=self._create_keyboard()
             )
             return
-            
+
+        # Отправка заголовка
+        emoji = '🐱' if category == 'кошек' else '🐶' if category == 'собак' else '🎁'
         self.bot.send_message(
             chat_id,
-            f"🐱 Последние объявления о {animal_type}:" if is_cat else f"🐶 Последние объявления о {animal_type}:"
+            f"{emoji} <b>Последние объявления о {category}:</b>",
+            parse_mode="HTML",
+            reply_markup=self._create_keyboard()
         )
-        
-        for post in posts[:3]:  # Ограничим 3 постами
-            if post['photo_url']:
-                try:
+
+        # Отправка постов
+        for post in posts:
+            try:
+                if post['photo_url']:
                     self.bot.send_photo(
                         chat_id,
                         post['photo_url'],
-                        caption=f"{post['text']}\n\n📅 {post['date']}"
+                        caption=self._format_post(post),
+                        parse_mode="HTML"
                     )
-                except Exception as e:
-                    logger.error(f"Ошибка отправки фото: {str(e)}")
-                    self._send_text_post(chat_id, post)
-            else:
-                self._send_text_post(chat_id, post)
-            
-            time.sleep(1)  # Задержка между отправками
-    
-    def _send_text_post(self, chat_id, post):
-        """Отправка текстового поста"""
-        self.bot.send_message(
-            chat_id,
-            f"{post['text']}\n\n📅 {post['date']}"
+                else:
+                    self.bot.send_message(
+                        chat_id,
+                        self._format_post(post),
+                        parse_mode="HTML"
+                    )
+                time.sleep(1)
+            except Exception as e:
+                logger.error(f"Ошибка отправки поста: {str(e)}")
+
+    def _format_post(self, post: Dict) -> str:
+        """Форматирование текста поста"""
+        return (
+            f"{post['text']}\n\n"
+            f"📅 <i>{post['date']}</i>\n"
+            f"🔗 <a href='{self.parser.channel_url}'>Перейти в канал</a>"
         )
-    
-    def send_cats(self, message):
-        """Обработчик для кошек"""
-        self.send_animal_posts(message.chat.id, is_cat=True)
-    
-    def send_dogs(self, message):
-        """Обработчик для собак"""
-        self.send_animal_posts(message.chat.id, is_cat=False)
-    
+
     def run(self):
         """Запуск бота"""
         logger.info("Бот запущен!")
