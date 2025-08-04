@@ -6,6 +6,9 @@ from datetime import datetime
 import time
 import logging
 import json
+import requests
+from bs4 import BeautifulSoup
+import re
 from typing import Dict, List, Optional
 
 # 🔧 Настройка логирования
@@ -15,112 +18,216 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-class ContentManager:
-    """Класс для управления контентом бота"""
+class SimpleChannelParser:
+    """Простой парсер канала через веб-интерфейс (без API)"""
     
-    def __init__(self, assets_dir: str = "assets"):
-        self.assets_dir = assets_dir
-        self.texts = {}
-        self.images = {}
-        self.load_all_content()
-    
-    def load_text(self, filename: str) -> str:
-        """Загружает текст из HTML файла"""
-        try:
-            path = os.path.join(self.assets_dir, filename)
-            with open(path, encoding="utf-8") as f:
-                return f.read()
-        except FileNotFoundError:
-            logger.error(f"❌ Файл {filename} не найден!")
-            return f"Контент из {filename} недоступен"
-        except Exception as e:
-            logger.error(f"❌ Ошибка загрузки {filename}: {e}")
-            return "Ошибка загрузки контента"
-    
-    def load_all_content(self):
-        """Загружает весь контент при инициализации"""
-        if not os.path.exists(self.assets_dir):
-            logger.warning(f"📁 Папка {self.assets_dir} не найдена!")
-            os.makedirs(self.assets_dir, exist_ok=True)
-            return
+    def __init__(self):
+        self.channel_username = 'Lapki_ruchki_Yalta_help'
+        self.channel_url = 'https://t.me/Lapki_ruchki_Yalta_help'
+        self.web_url = f'https://t.me/s/{self.channel_username}'  # Публичный веб-интерфейс
         
+        self.posts_cache = []
+        self.last_update = None
+        
+        # Заголовки для запросов
+        self.headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+    
+    def get_channel_posts(self, limit: int = 3) -> List[Dict]:
+        """Получает последние посты из канала через веб-скрейпинг"""
         try:
-            for filename in os.listdir(self.assets_dir):
-                if filename.endswith('.html'):
-                    key = filename.replace('.html', '')
-                    self.texts[key] = self.load_text(filename)
-                    logger.info(f"✅ Загружен текст: {filename} -> {key}")
-                elif filename.endswith(('.jpg', '.jpeg', '.png')):
-                    key = filename.split('.')[0]
-                    self.images[key] = os.path.join(self.assets_dir, filename)
-                    logger.info(f"✅ Найдено изображение: {filename} -> {key}")
+            logger.info(f"🌐 Загрузка постов с {self.web_url}")
+            
+            # Делаем запрос к веб-версии канала
+            response = requests.get(self.web_url, headers=self.headers, timeout=10)
+            response.raise_for_status()
+            
+            # Парсим HTML
+            soup = BeautifulSoup(response.content, 'html.parser')
+            
+            # Ищем посты (div с классом tgme_widget_message)
+            message_divs = soup.find_all('div', class_='tgme_widget_message')
+            
+            posts = []
+            for div in message_divs[:limit*2]:  # Берем больше для фильтрации
+                post_data = self.parse_message_div(div)
+                if post_data and self.is_cat_related(post_data.get('text', '')):
+                    posts.append(post_data)
+                    
+                if len(posts) >= limit:
+                    break
+            
+            if posts:
+                self.posts_cache = posts
+                self.last_update = datetime.now()
+                logger.info(f"✅ Получено {len(posts)} постов из канала")
+            else:
+                logger.warning("⚠️ Не найдено подходящих постов")
+                
+            return posts or self.get_mock_posts()
+            
+        except requests.exceptions.RequestException as e:
+            logger.error(f"❌ Ошибка запроса к каналу: {e}")
+            return self.get_mock_posts()
         except Exception as e:
-            logger.error(f"❌ Ошибка загрузки контента: {e}")
+            logger.error(f"❌ Ошибка парсинга канала: {e}")
+            return self.get_mock_posts()
     
-    def get_text(self, key: str, default: str = "Контент недоступен") -> str:
-        """Получает текст по ключу"""
-        return self.texts.get(key, default)
-    
-    def get_image_path(self, key: str) -> Optional[str]:
-        """Получает путь к изображению по ключу"""
-        return self.images.get(key)
-
-class DatabaseManager:
-    """Простой менеджер для хранения данных пользователей"""
-    
-    def __init__(self, db_file: str = "user_data.json"):
-        self.db_file = db_file
-        self.data = self.load_data()
-    
-    def load_data(self) -> Dict:
-        """Загружает данные из файла"""
+    def parse_message_div(self, div) -> Optional[Dict]:
+        """Парсит отдельный пост из HTML div"""
         try:
-            if os.path.exists(self.db_file):
-                with open(self.db_file, 'r', encoding='utf-8') as f:
-                    return json.load(f)
-        except Exception as e:
-            logger.error(f"❌ Ошибка загрузки данных: {e}")
-        return {"users": {}, "statistics": {"total_users": 0, "messages_sent": 0}}
-    
-    def save_data(self):
-        """Сохраняет данные в файл"""
-        try:
-            with open(self.db_file, 'w', encoding='utf-8') as f:
-                json.dump(self.data, f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            logger.error(f"❌ Ошибка сохранения данных: {e}")
-    
-    def add_user(self, user_id: int, username: str = None):
-        """Добавляет пользователя"""
-        user_id_str = str(user_id)
-        if user_id_str not in self.data["users"]:
-            self.data["users"][user_id_str] = {
-                "username": username,
-                "first_seen": datetime.now().isoformat(),
-                "last_activity": datetime.now().isoformat(),
-                "message_count": 0
+            # Извлекаем ID поста
+            post_id = None
+            data_post_attr = div.get('data-post')
+            if data_post_attr:
+                post_id = data_post_attr.split('/')[-1]
+            
+            # Извлекаем текст поста
+            text_div = div.find('div', class_='tgme_widget_message_text')
+            text = text_div.get_text(strip=True) if text_div else ""
+            
+            # Извлекаем дату
+            date_elem = div.find('time')
+            date_str = "Недавно"
+            if date_elem:
+                datetime_attr = date_elem.get('datetime')
+                if datetime_attr:
+                    try:
+                        dt = datetime.fromisoformat(datetime_attr.replace('Z', '+00:00'))
+                        date_str = dt.strftime('%d.%m.%Y %H:%M')
+                    except:
+                        pass
+            
+            # Проверяем наличие фото
+            has_photo = bool(div.find('a', class_='tgme_widget_message_photo_wrap'))
+            
+            if not text:  # Пропускаем посты без текста
+                return None
+            
+            post_data = {
+                'id': post_id or 'unknown',
+                'text': text,
+                'date': date_str,
+                'url': f"{self.channel_url}/{post_id}" if post_id else self.channel_url,
+                'title': self.extract_title(text),
+                'description': self.extract_description(text),
+                'contact': self.extract_contact(text),
+                'has_photo': has_photo
             }
-            self.data["statistics"]["total_users"] += 1
-            logger.info(f"👤 Новый пользователь: {user_id} (@{username})")
-        else:
-            self.data["users"][user_id_str]["last_activity"] = datetime.now().isoformat()
+            
+            return post_data
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка парсинга div поста: {e}")
+            return None
+    
+    def extract_title(self, text: str) -> str:
+        """Извлекает заголовок из текста поста"""
+        lines = text.split('\n')
+        for line in lines[:3]:
+            line = line.strip()
+            if line and len(line) > 10:
+                # Убираем лишние символы для заголовка
+                title = re.sub(r'[^\w\s\-\.,!?а-яёА-ЯЁ]', '', line)
+                if len(title) > 50:
+                    title = title[:50] + "..."
+                return title or "Кошка ищет дом"
+        return "Кошка ищет дом"
+    
+    def extract_description(self, text: str) -> str:
+        """Извлекает описание из текста"""
+        # Убираем контактную информацию для описания
+        clean_text = re.sub(r'@\w+|https?://\S+|\+?\d[\d\s\-\(\)]+', '', text)
         
-        self.data["users"][user_id_str]["message_count"] += 1
-        self.data["statistics"]["messages_sent"] += 1
-        self.save_data()
+        if len(clean_text) > 200:
+            return clean_text[:200] + "..."
+        return clean_text
+    
+    def extract_contact(self, text: str) -> str:
+        """Извлекает контактную информацию"""
+        # Ищем телефоны
+        phone_pattern = r'\+?[78][\s\-]?\(?9\d{2}\)?\s?[\d\s\-]{7,10}'
+        phones = re.findall(phone_pattern, text)
+        
+        # Ищем юзернеймы
+        username_pattern = r'@\w+'
+        usernames = re.findall(username_pattern, text)
+        
+        contacts = []
+        if phones:
+            contacts.extend(phones[:1])
+        if usernames:
+            contacts.extend(usernames[:1])
+            
+        return ' • '.join(contacts) if contacts else "См. в канале"
+    
+    def is_cat_related(self, text: str) -> bool:
+        """Проверяет, относится ли пост к кошкам"""
+        cat_keywords = [
+            'кот', 'кошк', 'котен', 'котик', 'мурз', 'мяу',
+            'кастр', 'стерил', 'привит', 'пристрой', 'дом',
+            'котята', 'мама-кошка', 'беременная', 'питомец'
+        ]
+        
+        text_lower = text.lower()
+        return any(keyword in text_lower for keyword in cat_keywords)
+    
+    def get_mock_posts(self) -> List[Dict]:
+        """Возвращает тестовые посты"""
+        return [
+            {
+                'id': '1001',
+                'title': '🐱 Котенок Мурзик ищет дом',
+                'description': 'Возраст: 2 месяца, мальчик, рыжий окрас. Здоров, привит, очень игривый.',
+                'date': '03.08.2025 14:30',
+                'url': f'{self.channel_url}/1001',
+                'contact': '@volunteer1 • +7 978 123-45-67',
+                'has_photo': True
+            },
+            {
+                'id': '1002',
+                'title': '😺 Кошечка Муся',
+                'description': 'Возраст: 1 год, девочка, трехцветная. Стерилизована, привита.',
+                'date': '03.08.2025 12:15',
+                'url': f'{self.channel_url}/1002',
+                'contact': '@volunteer2',
+                'has_photo': True
+            },
+            {
+                'id': '1003',
+                'title': '🐈 Взрослый кот Барсик',
+                'description': 'Возраст: 3 года, мальчик, серый. Кастрирован, спокойный.',
+                'date': '02.08.2025 18:45',
+                'url': f'{self.channel_url}/1003',
+                'contact': '+7 978 987-65-43',
+                'has_photo': False
+            }
+        ]
+    
+    def get_cached_posts(self) -> List[Dict]:
+        """Возвращает кэшированные или обновленные посты"""
+        # Если кэш старше 30 минут, обновляем
+        if (not self.last_update or 
+            (datetime.now() - self.last_update).seconds > 1800):
+            try:
+                return self.get_channel_posts()
+            except:
+                pass
+        
+        return self.posts_cache if self.posts_cache else self.get_mock_posts()
 
-class CatBot:
-    """Основной класс бота"""
+class CatBotSimple:
+    """Упрощенная версия бота с веб-скрейпингом"""
     
     def __init__(self):
         self.token = os.environ.get('TOKEN')
         if not self.token:
-            logger.error("❌ Ошибка: Переменная TOKEN не найдена!")
+            logger.error("❌ Переменная TOKEN не найдена!")
             exit(1)
         
         self.bot = telebot.TeleBot(self.token)
-        self.content_manager = ContentManager()
-        self.db_manager = DatabaseManager()
+        self.channel_parser = SimpleChannelParser()
         self.app = Flask(__name__)
         
         # Конфигурация
@@ -131,302 +238,206 @@ class CatBot:
             os.environ.get('WEBHOOK_URL')
         )
         
+        # Простая статистика
+        self.stats = {"users": set(), "messages": 0}
+        
         self.setup_handlers()
         self.setup_routes()
     
-    def send_message_with_image(self, chat_id: int, text: str, image_key: str = None) -> bool:
-        """Отправляет сообщение с изображением или без него"""
+    def send_message(self, chat_id: int, text: str, markup=None) -> bool:
+        """Отправляет сообщение"""
         try:
-            if image_key:
-                image_path = self.content_manager.get_image_path(image_key)
-                if image_path and os.path.exists(image_path):
-                    with open(image_path, 'rb') as photo:
-                        self.bot.send_photo(
-                            chat_id,
-                            photo,
-                            caption=text,
-                            parse_mode="HTML",
-                            disable_web_page_preview=True
-                        )
-                        return True
-            
-            # Отправляем только текст
             self.bot.send_message(
                 chat_id,
                 text,
                 parse_mode="HTML",
-                disable_web_page_preview=True
+                disable_web_page_preview=True,
+                reply_markup=markup
             )
             return True
-            
         except Exception as e:
-            logger.error(f"❌ Ошибка отправки сообщения: {e}")
+            logger.error(f"❌ Ошибка отправки: {e}")
             return False
     
+    def send_channel_posts(self, chat_id: int):
+        """Отправляет посты из канала"""
+        try:
+            posts = self.channel_parser.get_cached_posts()
+            
+            if not posts:
+                self.send_message(
+                    chat_id,
+                    f"😿 Сейчас нет актуальных объявлений.\n\n"
+                    f"📢 Проверьте канал: {self.channel_parser.channel_url}"
+                )
+                return
+            
+            # Заголовок
+            header = f"""🐱 <b>КОШКИ ИЩУТ ДОМ</b>
+
+📢 Объявления из канала:
+<a href="{self.channel_parser.channel_url}">Лапки-ручки Ялта помощь</a>
+
+⬇️ Последние {len(posts)} объявления:"""
+            
+            self.send_message(chat_id, header)
+            
+            # Отправляем посты
+            for i, post in enumerate(posts, 1):
+                post_text = f"""{'🔸' if i == 1 else '🔹'} <b>{post['title']}</b>
+
+📝 {post['description']}
+
+📅 {post['date']}
+📞 {post['contact']}
+{'📷 Есть фото' if post.get('has_photo') else ''}
+
+🔗 <a href="{post['url']}">Смотреть в канале</a>
+{'━━━━━━━━━━━━━━━━' if i < len(posts) else ''}"""
+                
+                self.send_message(chat_id, post_text)
+                time.sleep(0.3)
+            
+            # Футер
+            footer = f"""💡 <b>Как помочь:</b>
+
+🏠 <b>Взять кошку:</b>
+Свяжитесь с контактом из объявления
+
+📢 <b>Канал:</b> <a href="{self.channel_parser.channel_url}">Лапки-ручки Ялта помощь</a>
+
+🤝 <b>Стать волонтером:</b>
+Напишите в канал"""
+            
+            self.send_message(chat_id, footer)
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка отправки постов: {e}")
+            self.send_message(
+                chat_id,
+                f"⚠️ Ошибка загрузки.\n\n"
+                f"📢 Канал: {self.channel_parser.channel_url}"
+            )
+    
     def get_main_keyboard(self):
-        """Создает главную клавиатуру"""
+        """Главная клавиатура"""
         markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
         markup.add("🏥 Стерилизация", "🏠 Пристройство")
-        markup.add("🚨 Экстренная помощь", "📞 Контакты")
-        markup.add("ℹ️ О проекте", "📊 Статистика")
+        markup.add("📞 Контакты", "ℹ️ О проекте")
         return markup
     
-    def get_back_keyboard(self):
-        """Создает клавиатуру с кнопкой назад"""
+    def get_adoption_keyboard(self):
+        """Клавиатура пристройства"""
         markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+        markup.add("🐱 Кошки ищут дом")
+        markup.add("📝 Подать объявление")
         markup.add("🔙 Назад")
         return markup
     
     def setup_handlers(self):
-        """Настраивает обработчики команд и сообщений"""
+        """Обработчики сообщений"""
         
         @self.bot.message_handler(commands=['start'])
         def start_handler(message):
-            self.db_manager.add_user(message.from_user.id, message.from_user.username)
-            self.send_message_with_image(
-                message.chat.id,
-                "👋 <b>Добро пожаловать в помощник по уличным кошкам!</b>\n\n"
-                "🐾 Выберите нужный раздел из меню:\n\n"
-                "🏥 <b>Стерилизация</b> - информация о стерилизации\n"
-                "🏠 <b>Пристройство</b> - поиск дома для кошек\n"
-                "🚨 <b>Экстренная помощь</b> - срочная ветеринарная помощь\n"
-                "📞 <b>Контакты</b> - связь с волонтерами\n"
-                "ℹ️ <b>О проекте</b> - информация о нашей деятельности"
-            )
+            self.stats["users"].add(message.from_user.id)
+            self.stats["messages"] += 1
             
-            # Отправляем клавиатуру отдельным сообщением
-            self.bot.send_message(
-                message.chat.id,
-                "Выберите раздел:",
-                reply_markup=self.get_main_keyboard()
-            )
+            welcome_text = """👋 <b>Добро пожаловать!</b>
+
+🐾 Помощник по уличным кошкам Ялты
+
+Выберите раздел:
+🏥 <b>Стерилизация</b> - информация
+🏠 <b>Пристройство</b> - кошки ищут дом
+📞 <b>Контакты</b> - связь с волонтерами
+ℹ️ <b>О проекте</b> - наша деятельность"""
+            
+            self.send_message(message.chat.id, welcome_text, self.get_main_keyboard())
         
-        @self.bot.message_handler(commands=['status', 'stats'])
-        def status_handler(message):
-            stats = self.db_manager.data["statistics"]
-            now = datetime.now().strftime('%d.%m.%Y %H:%M:%S')
-            
-            status_text = f"""🤖 <b>Статус бота</b>
-
-✅ Бот активен
-⏰ Время: <code>{now}</code>
-🆔 Ваш ID: <code>{message.from_user.id}</code>
-
-📊 <b>Статистика:</b>
-👥 Всего пользователей: {stats['total_users']}
-💬 Сообщений обработано: {stats['messages_sent']}
-"""
-            self.send_message_with_image(message.chat.id, status_text)
-        
-        @self.bot.message_handler(commands=['admin'])
-        def admin_handler(message):
-            # Простая защита админки
-            admin_ids = [int(x) for x in os.environ.get('ADMIN_IDS', '').split(',') if x.strip()]
-            if message.from_user.id not in admin_ids:
-                self.send_message_with_image(message.chat.id, "❌ Доступ запрещен")
-                return
-            
-            stats = self.db_manager.data["statistics"]
-            users_count = len(self.db_manager.data["users"])
-            
-            admin_text = f"""👨‍💻 <b>АДМИН ПАНЕЛЬ</b>
-
-📊 <b>Статистика:</b>
-👥 Пользователей: {users_count}
-💬 Сообщений: {stats['messages_sent']}
-
-🔄 <b>Команды:</b>
-/reload - перезагрузить контент
-/backup - создать резервную копию
-"""
-            self.send_message_with_image(message.chat.id, admin_text)
-        
-        @self.bot.message_handler(commands=['reload'])
-        def reload_handler(message):
-            admin_ids = [int(x) for x in os.environ.get('ADMIN_IDS', '').split(',') if x.strip()]
-            if message.from_user.id not in admin_ids:
-                return
-            
-            self.content_manager.load_all_content()
-            self.send_message_with_image(message.chat.id, "✅ Контент перезагружен")
+        @self.bot.message_handler(commands=['update'])
+        def update_handler(message):
+            """Обновление постов (для админов)"""
+            self.channel_parser.posts_cache = []
+            self.channel_parser.last_update = None
+            self.send_message(message.chat.id, "🔄 Обновляю посты...")
+            posts = self.channel_parser.get_channel_posts()
+            self.send_message(message.chat.id, f"✅ Обновлено: {len(posts)} постов")
         
         @self.bot.message_handler(func=lambda m: True)
         def message_handler(message):
-            self.db_manager.add_user(message.from_user.id, message.from_user.username)
-            self.handle_message(message)
-    
-    def handle_message(self, message):
-        """Обрабатывает текстовые сообщения"""
-        text = message.text
-        chat_id = message.chat.id
-        
-        try:
-            if text == "🏥 Стерилизация":
-                markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-                markup.add("💰 Платная", "🆓 Бесплатная")
-                markup.add("🔙 Назад")
+            self.stats["users"].add(message.from_user.id)
+            self.stats["messages"] += 1
+            
+            text = message.text
+            chat_id = message.chat.id
+            
+            try:
+                if text == "🏠 Пристройство":
+                    info_text = """🏠 <b>Пристройство кошек</b>
+
+Выберите действие:
+
+🐱 <b>Кошки ищут дом</b>
+Актуальные объявления из канала
+
+📝 <b>Подать объявление</b>
+Как разместить свое объявление"""
+                    
+                    self.send_message(chat_id, info_text, self.get_adoption_keyboard())
                 
-                self.bot.send_message(
-                    chat_id,
-                    "🏥 <b>Стерилизация кошек</b>\n\n"
-                    "Выберите тип стерилизации:\n\n"
-                    "💰 <b>Платная</b> - частные клиники\n"
-                    "🆓 <b>Бесплатная</b> - по программам помощи",
-                    reply_markup=markup,
-                    parse_mode="HTML"
-                )
-            
-            elif text in ["💰 Платная", "🆓 Бесплатная"]:
-                content_key = "paid_text" if text == "💰 Платная" else "free_text"
-                image_key = "paid" if text == "💰 Платная" else "free"
+                elif text == "🐱 Кошки ищут дом":
+                    self.send_channel_posts(chat_id)
                 
-                content = self.content_manager.get_text(
-                    content_key, 
-                    f"Информация о {'платной' if text == '💰 Платная' else 'бесплатной'} стерилизации временно недоступна"
-                )
+                elif text == "📝 Подать объявление":
+                    info_text = f"""📝 <b>Подать объявление</b>
+
+📢 <b>Канал для объявлений:</b>
+<a href="{self.channel_parser.channel_url}">Лапки-ручки Ялта помощь</a>
+
+✍️ <b>Как подать:</b>
+1️⃣ Перейти в канал
+2️⃣ Написать администраторам
+3️⃣ Или связаться с координаторами:
+   • Анна: +7 978 000-00-01
+   • Telegram: @adoption_coordinator
+
+📋 <b>Нужная информация:</b>
+🔹 Фото животного
+🔹 Возраст, пол, окрас
+🔹 Характер
+🔹 Здоровье (прививки, стерилизация)
+🔹 Ваши контакты
+
+💡 <b>Советы:</b>
+✅ Честное описание
+✅ Качественные фото
+✅ Быстрые ответы на вопросы"""
+                    
+                    self.send_message(chat_id, info_text)
                 
-                self.send_message_with_image(chat_id, content, image_key)
-                
-                # Добавляем кнопку "Назад"
-                self.bot.send_message(
-                    chat_id,
-                    "Что еще вас интересует?",
-                    reply_markup=self.get_back_keyboard()
-                )
-            
-            elif text == "🏠 Пристройство":
-                markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-                markup.add("👶 Котята", "🐱 Взрослые кошки")
-                markup.add("📝 Подать объявление", "🔙 Назад")
-                
-                self.bot.send_message(
-                    chat_id,
-                    "🏠 <b>Пристройство кошек</b>\n\n"
-                    "Выберите категорию:\n\n"
-                    "👶 <b>Котята</b> - малыши ищут дом\n"
-                    "🐱 <b>Взрослые кошки</b> - взрослые животные\n"
-                    "📝 <b>Подать объявление</b> - разместить свое объявление",
-                    reply_markup=markup,
-                    parse_mode="HTML"
-                )
-            
-            elif text == "👶 Котята":
-                content = self.content_manager.get_text(
-                    "kittens_adoption",
-                    """👶 <b>Котята ищут дом</b>
-
-🐱 В настоящее время доступны для пристройства:
-• Рыжий котенок "Мурзик" (2 мес.)
-• Трехцветная кошечка "Муся" (1.5 мес.)
-• Серый полосатый "Барсик" (3 мес.)
-
-📞 Для получения подробной информации:
-Анна: +7 978 000-00-01
-Telegram: @adoption_coordinator
-
-💝 Все котята:
-✅ Здоровы и привиты
-✅ Обработаны от паразитов
-✅ Социализированы"""
-                )
-                self.send_message_with_image(chat_id, content, "kittens")
-            
-            elif text == "🚨 Экстренная помощь":
-                content = self.content_manager.get_text(
-                    "emergency_help",
-                    """🚨 <b>ЭКСТРЕННАЯ ПОМОЩЬ</b>
-
-🏥 <b>Круглосуточные клиники:</b>
-📞 "Доктор Айболит": +7 978 000-00-00
-📍 г. Ялта, ул. Примерная, 1
-
-🆘 <b>При отравлении:</b>
-1️⃣ Не давайте воду и еду
-2️⃣ Немедленно к врачу
-3️⃣ Сохранить образец рвоты
-
-🩹 <b>При травмах:</b>
-1️⃣ Осторожно в переноску
-2️⃣ К ветеринару
-3️⃣ Не давать обезболивающие
-
-📱 <b>Волонтеры 24/7:</b>
-@emergency_help_cats"""
-                )
-                self.send_message_with_image(chat_id, content)
-            
-            elif text == "📞 Контакты":
-                content = self.content_manager.get_text("contacts", self.get_default_contacts())
-                self.send_message_with_image(chat_id, content)
-            
-            elif text == "ℹ️ О проекте":
-                content = self.content_manager.get_text("about_project", self.get_default_about())
-                self.send_message_with_image(chat_id, content, "about")
-            
-            elif text == "📊 Статистика":
-                stats = self.db_manager.data["statistics"]
-                stats_text = f"""📊 <b>СТАТИСТИКА ПРОЕКТА</b>
-
-👥 Пользователей бота: {stats['total_users']}
-💬 Сообщений обработано: {stats['messages_sent']}
-
-🏥 <b>Наши достижения:</b>
-🔹 Стерилизовано: 500+ кошек
-🔹 Пристроено: 200+ котят
-🔹 Вылечено: 150+ животных
-🔹 Волонтеров: 50+ активных
-
-📈 Обновляется автоматически"""
-                self.send_message_with_image(chat_id, stats_text)
-            
-            elif text == "🔙 Назад":
-                self.bot.send_message(
-                    chat_id,
-                    "🏠 Главное меню:",
-                    reply_markup=self.get_main_keyboard()
-                )
-            
-            else:
-                # Неизвестная команда
-                self.bot.send_message(
-                    chat_id,
-                    "❓ Не понимаю эту команду.\n\n"
-                    "Используйте кнопки меню или команды:\n"
-                    "/start - главное меню\n"
-                    "/status - статус бота",
-                    reply_markup=self.get_main_keyboard()
-                )
-                
-        except Exception as e:
-            logger.error(f"❌ Ошибка обработки сообщения: {e}")
-            self.send_message_with_image(
-                chat_id, 
-                "⚠️ Произошла ошибка. Попробуйте позже или используйте /start"
-            )
-    
-    def get_default_contacts(self) -> str:
-        """Возвращает контакты по умолчанию"""
-        return """📞 <b>ВАЖНЫЕ КОНТАКТЫ</b>
+                elif text == "📞 Контакты":
+                    contacts_text = """📞 <b>КОНТАКТЫ</b>
 
 👥 <b>Координаторы:</b>
-🔹 Екатерина (стерилизация): +7 978 144-90-70
-🔹 Анна (пристройство): +7 978 000-00-01
-🔹 Михаил (лечение): +7 978 000-00-02
+🔹 Стерилизация: +7 978 144-90-70
+🔹 Пристройство: +7 978 000-00-01
+🔹 Лечение: +7 978 000-00-02
 
-🏥 <b>Клиники-партнеры:</b>
+🏥 <b>Клиники:</b>
 🔹 "Айболит": +7 978 000-00-03
 🔹 "ВетМир": +7 978 000-00-04
 
 📱 <b>Социальные сети:</b>
 🔹 Telegram: @yalta_cats
 🔹 Instagram: @yalta_street_cats"""
-    
-    def get_default_about(self) -> str:
-        """Возвращает информацию о проекте"""
-        return """ℹ️ <b>О ПРОЕКТЕ</b>
+                    
+                    self.send_message(chat_id, contacts_text)
+                
+                elif text == "ℹ️ О проекте":
+                    about_text = """ℹ️ <b>О ПРОЕКТЕ</b>
 
 🎯 <b>Миссия:</b>
-Помощь бездомным кошкам в Ялте
+Помощь бездомным кошкам Ялты
 
 📊 <b>Достижения:</b>
 🔹 Стерилизовано: 500+ кошек
@@ -438,9 +449,25 @@ Telegram: @adoption_coordinator
 
 🤝 <b>Стать волонтером:</b>
 Пишите @volunteer_coordinator"""
+                    
+                    self.send_message(chat_id, about_text)
+                
+                elif text == "🔙 Назад":
+                    self.send_message(chat_id, "🏠 Главное меню:", self.get_main_keyboard())
+                
+                else:
+                    self.send_message(
+                        chat_id,
+                        "❓ Используйте кнопки меню\n\n/start - главное меню",
+                        self.get_main_keyboard()
+                    )
+                    
+            except Exception as e:
+                logger.error(f"❌ Ошибка обработки: {e}")
+                self.send_message(chat_id, "⚠️ Ошибка. Попробуйте /start")
     
     def setup_routes(self):
-        """Настраивает Flask маршруты"""
+        """Flask маршруты"""
         
         @self.app.route(f'/{self.token}', methods=['POST'])
         def webhook():
@@ -452,34 +479,34 @@ Telegram: @adoption_coordinator
                     return '', 200
                 return 'Bad request', 400
             except Exception as e:
-                logger.error(f"❌ Ошибка webhook: {e}")
+                logger.error(f"❌ Webhook ошибка: {e}")
                 return 'Internal error', 500
         
         @self.app.route('/')
         def home():
-            stats = self.db_manager.data["statistics"]
             return jsonify({
-                "status": "🤖 Cat Helper Bot is running!",
+                "status": "🤖 Cat Bot Running",
                 "time": datetime.now().strftime('%H:%M:%S'),
-                "date": datetime.now().strftime('%d.%m.%Y'),
-                "users": stats["total_users"],
-                "messages": stats["messages_sent"]
+                "users": len(self.stats["users"]),
+                "messages": self.stats["messages"],
+                "channel": self.channel_parser.channel_url
             })
         
-        @self.app.route('/health')
-        def health():
-            return jsonify({
-                "status": "ok",
-                "timestamp": datetime.now().isoformat(),
-                "bot_info": "Cat Helper Bot Active"
-            })
-        
-        @self.app.route('/stats')
-        def stats_endpoint():
-            return jsonify(self.db_manager.data["statistics"])
+        @self.app.route('/posts')
+        def posts_api():
+            try:
+                posts = self.channel_parser.get_cached_posts()
+                return jsonify({
+                    "status": "ok",
+                    "count": len(posts),
+                    "posts": posts,
+                    "channel": self.channel_parser.channel_url
+                })
+            except Exception as e:
+                return jsonify({"status": "error", "message": str(e)}), 500
     
     def setup_webhook(self) -> bool:
-        """Устанавливает webhook"""
+        """Настройка webhook"""
         try:
             self.bot.remove_webhook()
             time.sleep(2)
@@ -489,29 +516,37 @@ Telegram: @adoption_coordinator
                 return False
             
             full_url = f"https://{self.webhook_url}/{self.token}"
-            result = self.bot.set_webhook(url=full_url, max_connections=10)
+            result = self.bot.set_webhook(url=full_url)
             
             if result:
-                logger.info(f"✅ Webhook установлен: {full_url}")
+                logger.info(f"✅ Webhook: {full_url}")
                 return True
             else:
                 logger.error("❌ Не удалось установить webhook")
                 return False
                 
         except Exception as e:
-            logger.error(f"❌ Ошибка установки webhook: {e}")
+            logger.error(f"❌ Ошибка webhook: {e}")
             return False
     
     def run(self):
-        """Запускает бота"""
-        logger.info("🚀 Запуск Cat Helper Bot...")
+        """Запуск бота"""
+        logger.info("🚀 Запуск простого Cat Bot...")
+        
+        # Предзагрузка постов
+        try:
+            posts = self.channel_parser.get_cached_posts()
+            logger.info(f"✅ Загружено {len(posts)} постов")
+        except Exception as e:
+            logger.warning(f"⚠️ Не удалось загрузить посты: {e}")
+        
         if self.setup_webhook():
-            logger.info(f"🌐 Сервер запущен на порту {self.port}")
+            logger.info(f"🌐 Сервер на порту {self.port}")
             self.app.run(host='0.0.0.0', port=self.port, debug=False)
         else:
-            logger.error("🚨 Webhook не настроен. Проверьте конфигурацию.")
+            logger.error("🚨 Ошибка настройки webhook")
 
-# 🚀 Точка входа
+# 🚀 Запуск
 if __name__ == "__main__":
-    bot = CatBot()
+    bot = CatBotSimple()
     bot.run()
