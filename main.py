@@ -18,14 +18,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-class SimpleChannelParser:
-    """Улучшенный парсер каналов с поддержкой фото"""
+class SimpleGroupParser:
+    """Парсер открытых групп с животными"""
     
     def __init__(self):
-        self.channels = [
+        self.groups = [
             {
-                'username': 'Lapki_ruchki_Yalta_help',
-                'url': 'https://t.me/Lapki_ruchki_Yalta_help',
+                'username': 'lapki_ruchki_yalta',
+                'url': 'https://t.me/lapki_ruchki_yalta',
                 'type': 'cats'
             },
             {
@@ -37,15 +37,15 @@ class SimpleChannelParser:
         self.posts_cache = []
         self.last_update = None
     
-    def get_channel_posts(self, channel_type: str = 'all', limit: int = 3) -> List[Dict]:
-        """Получает последние посты с фото из указанного типа канала"""
+    def get_group_posts(self, group_type: str = 'all', limit: int = 3) -> List[Dict]:
+        """Получает последние посты с фото из указанного типа группы"""
         try:
             posts = []
-            for channel in self.channels:
-                if channel_type != 'all' and channel['type'] != channel_type:
+            for group in self.groups:
+                if group_type != 'all' and group['type'] != group_type:
                     continue
                     
-                web_url = f'https://t.me/s/{channel["username"]}'
+                web_url = f'https://t.me/s/{group["username"]}'
                 logger.info(f"🌐 Загрузка постов с {web_url}")
                 response = requests.get(web_url, headers={
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
@@ -56,8 +56,8 @@ class SimpleChannelParser:
                 message_divs = soup.find_all('div', class_='tgme_widget_message')
                 
                 for div in message_divs[:limit*2]:
-                    post_data = self.parse_message_div(div, channel)
-                    if post_data and self.is_animal_related(post_data.get('text', ''), channel['type']):
+                    post_data = self.parse_message_div(div, group)
+                    if post_data and self.is_animal_related(post_data.get('text', ''), group['type']):
                         posts.append(post_data)
                         
                     if len(posts) >= limit:
@@ -70,13 +70,13 @@ class SimpleChannelParser:
             else:
                 logger.warning("⚠️ Не найдено подходящих постов")
                 
-            return posts or self.get_mock_posts(channel_type)
+            return posts or self.get_mock_posts(group_type)
             
         except Exception as e:
             logger.error(f"❌ Ошибка парсинга: {e}")
-            return self.get_mock_posts(channel_type)
+            return self.get_mock_posts(group_type)
     
-    def parse_message_div(self, div, channel) -> Optional[Dict]:
+    def parse_message_div(self, div, group) -> Optional[Dict]:
         """Парсит пост, извлекая текст и фото"""
         try:
             # Базовые данные
@@ -109,13 +109,13 @@ class SimpleChannelParser:
                 'id': post_id,
                 'text': text,
                 'date': date_str,
-                'url': f"{channel['url']}/{post_id}" if post_id else channel['url'],
-                'title': self.extract_title(text, channel['type']),
+                'url': f"{group['url']}/{post_id}" if post_id else group['url'],
+                'title': self.extract_title(text, group['type']),
                 'description': self.extract_description(text),
                 'contact': self.extract_contact(text),
                 'photo_url': photo_url,
                 'has_photo': bool(photo_url),
-                'type': channel['type']
+                'type': group['type']
             }
             
         except Exception as e:
@@ -155,7 +155,7 @@ class SimpleChannelParser:
         if usernames:
             contacts.extend(usernames[:1])
             
-        return ' • '.join(contacts) if contacts else "См. в канале"
+        return ' • '.join(contacts) if contacts else "См. в группе"
     
     def is_animal_related(self, text: str, animal_type: str) -> bool:
         """Проверяет, относится ли пост к животным"""
@@ -176,16 +176,16 @@ class SimpleChannelParser:
             text_lower = text.lower()
             return any(keyword in text_lower for keyword in dog_keywords)
     
-    def get_mock_posts(self, channel_type: str = 'cats') -> List[Dict]:
+    def get_mock_posts(self, group_type: str = 'cats') -> List[Dict]:
         """Возвращает тестовые посты с фото"""
-        if channel_type == 'cats':
+        if group_type == 'cats':
             return [
                 {
                     'id': '1001',
                     'title': '🐱 Котенок Мурзик ищет дом',
                     'description': 'Возраст: 2 месяца, мальчик, рыжий окрас. Здоров, привит, очень игривый.',
                     'date': '03.08.2025 14:30',
-                    'url': 'https://t.me/Lapki_ruchki_Yalta_help/1001',
+                    'url': 'https://t.me/lapki_ruchki_yalta/1001',
                     'contact': '@volunteer1 • +7 978 123-45-67',
                     'photo_url': 'https://via.placeholder.com/600x400?text=Котенок+Мурзик',
                     'has_photo': True,
@@ -207,15 +207,15 @@ class SimpleChannelParser:
                 }
             ]
     
-    def get_cached_posts(self, channel_type: str = 'all') -> List[Dict]:
+    def get_cached_posts(self, group_type: str = 'all') -> List[Dict]:
         """Возвращает кэшированные или обновленные посты"""
         if (not self.last_update or 
             (datetime.now() - self.last_update).seconds > 1800):
             try:
-                return self.get_channel_posts(channel_type)
+                return self.get_group_posts(group_type)
             except:
                 pass
-        return [p for p in self.posts_cache if channel_type == 'all' or p['type'] == channel_type] or self.get_mock_posts(channel_type)
+        return [p for p in self.posts_cache if group_type == 'all' or p['type'] == group_type] or self.get_mock_posts(group_type)
 
 class CatBotWithPhotos:
     """Бот с поддержкой фото из постов"""
@@ -227,7 +227,7 @@ class CatBotWithPhotos:
             exit(1)
         
         self.bot = telebot.TeleBot(self.token)
-        self.parser = SimpleChannelParser()
+        self.parser = SimpleGroupParser()  # Используем парсер групп вместо каналов
         self.app = Flask(__name__)
         self.port = int(os.environ.get('PORT', 8080))
         self.webhook_url = os.environ.get('WEBHOOK_URL')
@@ -245,7 +245,7 @@ class CatBotWithPhotos:
                 f"{post['description']}\n\n"
                 f"📅 {post['date']}\n"
                 f"📞 {post['contact']}\n"
-                f"🔗 <a href='{post['url']}'>Открыть в канале</a>"
+                f"🔗 <a href='{post['url']}'>Открыть в группе</a>"
             )
             
             if len(post_text) > 1024:
@@ -259,7 +259,7 @@ class CatBotWithPhotos:
                         caption=post_text,
                         parse_mode="HTML",
                         reply_markup=types.InlineKeyboardMarkup().add(
-                            types.InlineKeyboardButton("📢 Открыть в канале", url=post['url'])
+                            types.InlineKeyboardButton("📢 Открыть в группе", url=post['url'])
                         )
                     )
                     return
@@ -272,14 +272,14 @@ class CatBotWithPhotos:
                 parse_mode="HTML",
                 disable_web_page_preview=False,
                 reply_markup=types.InlineKeyboardMarkup().add(
-                    types.InlineKeyboardButton("📢 Открыть в канале", url=post['url'])
+                    types.InlineKeyboardButton("📢 Открыть в группе", url=post['url'])
                 )
             )
             
         except Exception as e:
             logger.error(f"❌ Ошибка отправки поста: {e}")
 
-    def send_channel_posts(self, chat_id: int, animal_type: str = 'cats'):
+    def send_group_posts(self, chat_id: int, animal_type: str = 'cats'):
         """Отправляет все посты с фото"""
         try:
             posts = self.parser.get_cached_posts(animal_type)
@@ -288,18 +288,18 @@ class CatBotWithPhotos:
                 self.bot.send_message(
                     chat_id,
                     "😿 Сейчас нет актуальных объявлений.\n"
-                    f"📢 Проверьте канал: {self.parser.channels[0]['url'] if animal_type == 'cats' else self.parser.channels[1]['url']}"
+                    f"📢 Проверьте группу: {self.parser.groups[0]['url'] if animal_type == 'cats' else self.parser.groups[1]['url']}"
                 )
                 return
             
-            channel_name = "Лапки-ручки Ялта" if animal_type == 'cats' else "Ялта Животные"
-            channel_url = self.parser.channels[0]['url'] if animal_type == 'cats' else self.parser.channels[1]['url']
+            group_name = "Лапки-ручки Ялта" if animal_type == 'cats' else "Ялта Животные"
+            group_url = self.parser.groups[0]['url'] if animal_type == 'cats' else self.parser.groups[1]['url']
             
             self.bot.send_message(
                 chat_id,
                 f"{'🐱' if animal_type == 'cats' else '🐶'} <b>{'КОШКИ' if animal_type == 'cats' else 'СОБАКИ'} ИЩУТ ДОМ</b>\n\n"
-                f"📢 Последние объявления из канала:\n"
-                f"<a href='{channel_url}'>{channel_name}</a>",
+                f"📢 Последние объявления из группы:\n"
+                f"<a href='{group_url}'>{group_name}</a>",
                 parse_mode="HTML"
             )
             
@@ -311,8 +311,8 @@ class CatBotWithPhotos:
                 chat_id,
                 "💡 <b>Как помочь?</b>\n\n"
                 f"🏠 <b>Взять {'кошку' if animal_type == 'cats' else 'собаку'}:</b>\nСвяжитесь по контактам из объявления\n\n"
-                f"📢 <b>Канал:</b> {channel_url}\n\n"
-                "🤝 <b>Стать волонтером:</b>\nНапишите в канал",
+                f"📢 <b>Группа:</b> {group_url}\n\n"
+                "🤝 <b>Стать волонтером:</b>\nНапишите в группу",
                 parse_mode="HTML"
             )
             
@@ -321,8 +321,8 @@ class CatBotWithPhotos:
             self.bot.send_message(
                 chat_id,
                 f"⚠️ Ошибка загрузки объявлений\n\n"
-                f"Попробуйте позже или посетите канал:\n"
-                f"{self.parser.channels[0]['url'] if animal_type == 'cats' else self.parser.channels[1]['url']}"
+                f"Попробуйте позже или посетите группу:\n"
+                f"{self.parser.groups[0]['url'] if animal_type == 'cats' else self.parser.groups[1]['url']}"
             )
 
     def get_main_keyboard(self):
@@ -387,7 +387,7 @@ class CatBotWithPhotos:
             self.parser.posts_cache = []
             self.parser.last_update = None
             self.bot.send_message(message.chat.id, "🔄 Обновляю посты...")
-            posts = self.parser.get_channel_posts()
+            posts = self.parser.get_group_posts()
             self.bot.send_message(
                 message.chat.id, 
                 f"✅ Обновлено: {len(posts)} постов (с фото: {sum(1 for p in posts if p['photo_url'])})"
@@ -432,51 +432,49 @@ class CatBotWithPhotos:
                 parse_mode="HTML"
             )
         
-        @self.bot.message_handler(func=lambda m: True)
-        def message_handler(message):
+        @self.bot.message_handler(func=lambda m: m.text == "🏠 Пристройство")
+        def adoption_handler(message):
             self.stats["users"].add(message.from_user.id)
             self.stats["messages"] += 1
             
-            text = message.text
-            chat_id = message.chat.id
-            
-            try:
-                if text == "🏠 Пристройство":
-                    info_text = """🏠 <b>Пристройство животных</b>
+            info_text = """🏠 <b>Пристройство животных</b>
 
 Выберите действие:
 
 🐱 <b>Кошки ищут дом</b>
-Актуальные объявления из канала
+Актуальные объявления из группы
 
 🐶 <b>Собаки ищут дом</b>
-Актуальные объявления из канала
+Актуальные объявления из группы
 
 📝 <b>Подать объявление</b>
 Как разместить свое объявление"""
-                    
-                    self.bot.send_message(
-                        chat_id, 
-                        info_text, 
-                        parse_mode="HTML",
-                        reply_markup=self.get_adoption_keyboard()
-                    )
-                
-                elif text == "🐱 Кошки ищут дом":
-                    self.send_channel_posts(chat_id, 'cats')
-                
-                elif text == "🐶 Собаки ищут дом":
-                    self.send_channel_posts(chat_id, 'dogs')
-                
-                elif text == "📝 Подать объявление":
-                    info_text = f"""📝 <b>Подать объявление</b>
+            
+            self.bot.send_message(
+                message.chat.id, 
+                info_text, 
+                parse_mode="HTML",
+                reply_markup=self.get_adoption_keyboard()
+            )
+        
+        @self.bot.message_handler(func=lambda m: m.text == "🐱 Кошки ищут дом")
+        def cats_handler(message):
+            self.send_group_posts(message.chat.id, 'cats')
+        
+        @self.bot.message_handler(func=lambda m: m.text == "🐶 Собаки ищут дом")
+        def dogs_handler(message):
+            self.send_group_posts(message.chat.id, 'dogs')
+        
+        @self.bot.message_handler(func=lambda m: m.text == "📝 Подать объявление")
+        def post_ad_handler(message):
+            info_text = f"""📝 <b>Подать объявление</b>
 
-📢 <b>Каналы для объявлений:</b>
-<a href="{self.parser.channels[0]['url']}">Лапки-ручки Ялта помощь</a> (кошки)
-<a href="{self.parser.channels[1]['url']}">Ялта Животные</a> (собаки)
+📢 <b>Группы для объявлений:</b>
+<a href="{self.parser.groups[0]['url']}">Лапки-ручки Ялта</a> (кошки)
+<a href="{self.parser.groups[1]['url']}">Ялта Животные</a> (собаки)
 
 ✍️ <b>Как подать:</b>
-1️⃣ Перейти в канал
+1️⃣ Перейти в группу
 2️⃣ Написать администраторам
 3️⃣ Или связаться с координаторами:
    • Кошки: +7 978 000-00-01
@@ -488,11 +486,12 @@ class CatBotWithPhotos:
 🔹 Характер
 🔹 Здоровье (прививки, стерилизация)
 🔹 Ваши контакты"""
-                    
-                    self.bot.send_message(chat_id, info_text, parse_mode="HTML")
-                
-                elif text == "📞 Контакты":
-                    contacts_text = """📞 <b>КОНТАКТЫ</b>
+            
+            self.bot.send_message(message.chat.id, info_text, parse_mode="HTML")
+        
+        @self.bot.message_handler(func=lambda m: m.text == "📞 Контакты")
+        def contacts_handler(message):
+            contacts_text = """📞 <b>КОНТАКТЫ</b>
 
 👥 <b>Координаторы:</b>
 🔹 Кошки: +7 978 144-90-70
@@ -506,11 +505,12 @@ class CatBotWithPhotos:
 📱 <b>Социальные сети:</b>
 🔹 Telegram: @yalta_animals
 🔹 Instagram: @yalta_street_animals"""
-                    
-                    self.bot.send_message(chat_id, contacts_text, parse_mode="HTML")
-                
-                elif text == "ℹ️ О проекте":
-                    about_text = """ℹ️ <b>О ПРОЕКТЕ</b>
+            
+            self.bot.send_message(message.chat.id, contacts_text, parse_mode="HTML")
+        
+        @self.bot.message_handler(func=lambda m: m.text == "ℹ️ О проекте")
+        def about_handler(message):
+            about_text = """ℹ️ <b>О ПРОЕКТЕ</b>
 
 🎯 <b>Миссия:</b>
 Помощь бездомным животным Ялты
@@ -525,26 +525,27 @@ class CatBotWithPhotos:
 
 🤝 <b>Стать волонтером:</b>
 Пишите @animal_coordinator"""
-                    
-                    self.bot.send_message(chat_id, about_text, parse_mode="HTML")
-                
-                elif text == "🔙 Назад":
-                    self.bot.send_message(
-                        chat_id, 
-                        "🏠 Главное меню:", 
-                        reply_markup=self.get_main_keyboard()
-                    )
-                
-                else:
-                    self.bot.send_message(
-                        chat_id,
-                        "❓ Используйте кнопки меню\n\n/start - главное меню",
-                        reply_markup=self.get_main_keyboard()
-                    )
-                    
-            except Exception as e:
-                logger.error(f"❌ Ошибка обработки: {e}")
-                self.bot.send_message(chat_id, "⚠️ Ошибка. Попробуйте /start")
+            
+            self.bot.send_message(message.chat.id, about_text, parse_mode="HTML")
+        
+        @self.bot.message_handler(func=lambda m: m.text == "🔙 Назад")
+        def back_handler(message):
+            self.bot.send_message(
+                message.chat.id, 
+                "🏠 Главное меню:", 
+                reply_markup=self.get_main_keyboard()
+            )
+        
+        @self.bot.message_handler(func=lambda m: True)
+        def default_handler(message):
+            self.stats["users"].add(message.from_user.id)
+            self.stats["messages"] += 1
+            
+            self.bot.send_message(
+                message.chat.id,
+                "❓ Используйте кнопки меню\n\n/start - главное меню",
+                reply_markup=self.get_main_keyboard()
+            )
     
     def setup_routes(self):
         """Flask маршруты"""
@@ -569,7 +570,7 @@ class CatBotWithPhotos:
                 "time": datetime.now().strftime('%H:%M:%S'),
                 "users": len(self.stats["users"]),
                 "messages": self.stats["messages"],
-                "channels": [c['url'] for c in self.parser.channels]
+                "groups": [g['url'] for g in self.parser.groups]
             })
         
         @self.app.route('/posts')
@@ -580,7 +581,7 @@ class CatBotWithPhotos:
                     "status": "ok",
                     "count": len(posts),
                     "posts": posts,
-                    "channels": [c['url'] for c in self.parser.channels]
+                    "groups": [g['url'] for g in self.parser.groups]
                 })
             except Exception as e:
                 return jsonify({"status": "error", "message": str(e)}), 500
@@ -679,5 +680,4 @@ if __name__ == "__main__":
         pass
 
     bot = CatBotWithPhotos()
-    bot.run() 
-
+    bot.run()
