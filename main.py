@@ -578,4 +578,222 @@ class CatBotWithPhotos:
 
 📢 <b>Каналы для объявлений:</b>
 <a href="{self.parser.channels[0]['url']}">Лапки-ручки Ялта</a> (кошки)
-<a href="{self.parser.channels[1]['url']}">
+<a href="{self.parser.channels[1]['url']}">Ялта Животные</a> (собаки)
+
+✍️ <b>Как подать:</b>
+1️⃣ Перейти в канал
+2️⃣ Написать администраторам
+3️⃣ Или связаться с координаторами:
+   • Кошки: <a href="tel:+79781449070">+7 978 144-90-70</a>
+   • Собаки: <a href="tel:+79780000002">+7 978 000-00-02</a>
+
+📋 <b>Нужная информация:</b>
+🔹 Фото животного
+🔹 Возраст, пол, окрас
+🔹 Характер
+🔹 Здоровье (прививки, стерилизация)
+🔹 Ваши контакты"""
+                    
+                    self.bot.send_message(chat_id, info_text, parse_mode="HTML")
+                
+                elif text == "📞 Контакты":
+                    contacts_text = """📞 <b>КОНТАКТЫ</b>
+
+👥 <b>Координаторы:</b>
+🔹 Кошки: <a href="tel:+79781449070">+7 978 144-90-70</a>
+🔹 Собаки: <a href="tel:+79780000002">+7 978 000-00-02</a>
+🔹 Лечение: <a href="tel:+79780000003">+7 978 000-00-03</a>
+
+🏥 <b>Клиники:</b>
+🔹 "Айболит": <a href="tel:+79780000004">+7 978 000-00-04</a>
+🔹 "ВетМир": <a href="tel:+79780000005">+7 978 000-00-05</a>
+
+📱 <b>Социальные сети:</b>
+🔹 Telegram: @yalta_animals
+🔹 Instagram: @yalta_street_animals
+
+📢 <b>Каналы:</b>
+🔹 <a href="https://t.me/lapki_ruchki_yalta">Лапки-ручки Ялта</a>
+🔹 <a href="https://t.me/yalta_aninmals">Ялта Животные</a>"""
+                    
+                    self.bot.send_message(chat_id, contacts_text, parse_mode="HTML")
+                
+                elif text == "ℹ️ О проекте":
+                    about_text = """ℹ️ <b>О ПРОЕКТЕ</b>
+
+🎯 <b>Миссия:</b>
+Помощь бездомным животным Ялты
+
+📊 <b>Достижения:</b>
+🔹 Стерилизовано: 500+ кошек, 200+ собак
+🔹 Пристроено: 200+ котят, 100+ щенков
+🔹 Волонтеров: 50+ активных
+
+💰 <b>Поддержать:</b>
+Карта: 2202 2020 0000 0000
+СБП: <a href="tel:+79781449070">+7 978 144-90-70</a>
+
+🤝 <b>Стать волонтером:</b>
+Пишите @animal_coordinator или <a href="tel:+79781449070">+7 978 144-90-70</a>
+
+📞 <b>Экстренная помощь:</b>
+<a href="tel:+79781449070">+7 978 144-90-70</a> (круглосуточно)"""
+                    
+                    self.bot.send_message(chat_id, about_text, parse_mode="HTML")
+                
+                elif text == "🔙 Назад":
+                    self.bot.send_message(
+                        chat_id, 
+                        "🏠 Главное меню:", 
+                        reply_markup=self.get_main_keyboard()
+                    )
+                
+                else:
+                    self.bot.send_message(
+                        chat_id,
+                        "❓ Используйте кнопки меню\n\n/start - главное меню",
+                        reply_markup=self.get_main_keyboard()
+                    )
+                    
+            except Exception as e:
+                logger.error(f"❌ Ошибка обработки: {e}")
+                self.bot.send_message(chat_id, "⚠️ Ошибка. Попробуйте /start")
+    
+    def setup_routes(self):
+        """Flask маршруты"""
+        
+        @self.app.route(f'/{self.token}', methods=['POST'])
+        def webhook():
+            try:
+                if request.headers.get('content-type') == 'application/json':
+                    json_string = request.get_data().decode('utf-8')
+                    update = telebot.types.Update.de_json(json_string)
+                    self.bot.process_new_updates([update])
+                    return '', 200
+                return 'Bad request', 400
+            except Exception as e:
+                logger.error(f"❌ Webhook ошибка: {e}")
+                return 'Internal error', 500
+        
+        @self.app.route('/')
+        def home():
+            return jsonify({
+                "status": "🤖 Animal Bot Running",
+                "time": datetime.now().strftime('%H:%M:%S'),
+                "users": len(self.stats["users"]),
+                "messages": self.stats["messages"],
+                "channels": [c['url'] for c in self.parser.channels]
+            })
+        
+        @self.app.route('/posts')
+        def posts_api():
+            try:
+                posts = self.parser.get_cached_posts()
+                return jsonify({
+                    "status": "ok",
+                    "count": len(posts),
+                    "posts": posts,
+                    "channels": [c['url'] for c in self.parser.channels]
+                })
+            except Exception as e:
+                return jsonify({"status": "error", "message": str(e)}), 500
+    
+    def setup_webhook(self) -> bool:
+        """Настройка webhook"""
+        try:
+            self.bot.remove_webhook()
+            time.sleep(2)
+            
+            if not self.webhook_url:
+                logger.error("❌ WEBHOOK_URL не задан!")
+                return False
+            
+            full_url = f"https://{self.webhook_url}/{self.token}"
+            result = self.bot.set_webhook(url=full_url)
+            
+            if result:
+                logger.info(f"✅ Webhook: {full_url}")
+                return True
+            else:
+                logger.error("❌ Не удалось установить webhook")
+                return False
+                
+        except Exception as e:
+            logger.error(f"❌ Ошибка webhook: {e}")
+            return False
+    
+    def run(self):
+        """Запуск бота с фото-поддержкой"""
+        logger.info("🚀 Запуск AnimalBot с поддержкой фото...")
+        
+        # Предзагрузка постов
+        try:
+            posts = self.parser.get_cached_posts()
+            logger.info(f"✅ Предзагружено {len(posts)} постов")
+        except Exception as e:
+            logger.warning(f"⚠️ Ошибка предзагрузки: {e}")
+        
+        if self.setup_webhook():
+            self.app.run(host='0.0.0.0', port=self.port)
+        else:
+            logger.error("🚨 Ошибка webhook, запуск в polling режиме")
+            self.bot.polling()
+
+if __name__ == "__main__":
+    # Создаем необходимые папки и файлы, если их нет
+    os.makedirs('assets/images', exist_ok=True)
+    
+    # Создаем файлы с информацией о стерилизации
+    if not os.path.exists('assets/free_text.html'):
+        with open('assets/free_text.html', 'w', encoding='utf-8') as f:
+            f.write("""<b>🐾 БЕСПЛАТНАЯ СТЕРИЛИЗАЦИЯ</b>
+
+🏥 <b>Программы:</b>
+🔹 Муниципальная программа Ялты
+🔹 Благотворительные фонды
+
+📋 <b>Условия:</b>
+✅ Бездомные животные
+✅ Животные из малоимущих семей
+✅ По направлению волонтеров
+
+📞 <b>Контакты:</b>
+🔹 Координатор: <a href="tel:+79780000010">+7 978 000-00-10</a>
+🔹 Клиника "Айболит": <a href="tel:+79780000011">+7 978 000-00-11</a>
+
+📍 <b>Адреса:</b>
+ул. Кирова, 15 (пн-пт 9:00-18:00)
+
+🔥 <b>ЭКСТРЕННАЯ ПОМОЩЬ:</b>
+<a href="tel:+79781449070">+7 978 144-90-70</a> (круглосуточно)""")
+
+    if not os.path.exists('assets/paid_text.html'):
+        with open('assets/paid_text.html', 'w', encoding='utf-8') as f:
+            f.write("""<b>💵 ПЛАТНАЯ СТЕРИЛИЗАЦИЯ</b>
+
+🏥 <b>Клиники:</b>
+🔹 "Айболит": от 3000₽ (кошки), от 5000₽ (собаки)
+   📞 <a href="tel:+79780000012">+7 978 000-00-12</a>
+🔹 "ВетМир": от 2500₽ (кошки), от 4500₽ (собаки)
+   📞 <a href="tel:+79780000013">+7 978 000-00-13</a>
+
+🌟 <b>Включено:</b>
+✔️ Операция
+✔️ Наркоз
+✔️ Послеоперационный уход
+✔️ Консультация
+
+💡 <b>Скидки:</b>
+🔸 Волонтерам - 20%
+🔸 Многодетным семьям - 15%
+
+📞 <b>Консультации:</b>
+<a href="tel:+79781449070">+7 978 144-90-70</a>""")
+
+    # Создаем placeholder изображение, если его нет
+    if not os.path.exists('assets/images/sterilization.jpg'):
+        # Здесь можно добавить код для создания placeholder изображения
+        pass
+
+    bot = CatBotWithPhotos()
+    bot.run()
