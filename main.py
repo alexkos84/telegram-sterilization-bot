@@ -679,4 +679,5 @@ if __name__ == "__main__":
         pass
 
     bot = CatBotWithPhotos()
-    bot.run() Нужно заменить парсинг с канала на парсинг с группы https://t.me/lapki_ruchki_yalta  (дай полный код)
+    bot.run() 
+
