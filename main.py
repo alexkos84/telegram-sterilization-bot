@@ -1,5 +1,3 @@
-import os import telebot from te
-import os import telebot from te
 import os
 import telebot
 from telebot import types
@@ -26,14 +24,9 @@ class SimpleChannelParser:
     def __init__(self):
         self.channels = [
             {
-                'username': 'Lapki_ruchki_Yalta_help',
-                'url': 'https://t.me/Lapki_ruchki_Yalta_help',
+                'username': 'lapki_ruchki_yalta',
+                'url': 'https://t.me/lapki_ruchki_yalta',
                 'type': 'cats'
-            },
-            {
-                'username': 'yalta_aninmals',
-                'url': 'https://t.me/yalta_aninmals',
-                'type': 'dogs'
             }
         ]
         self.posts_cache = []
@@ -59,7 +52,7 @@ class SimpleChannelParser:
                 
                 for div in message_divs[:limit*2]:
                     post_data = self.parse_message_div(div, channel)
-                    if post_data and self.is_animal_related(post_data.get('text', ''), channel['type']):
+                    if post_data and self.is_animal_related(post_data.get('text', ''), channel['type']) and post_data.get('contact') and post_data['contact'] != "См. в канале":
                         posts.append(post_data)
                         
                     if len(posts) >= limit:
@@ -144,8 +137,8 @@ class SimpleChannelParser:
         return clean_text
     
     def extract_contact(self, text: str) -> str:
-        """Извлекает контактную информацию"""
-        phone_pattern = r'\+?[78][\s\-]?\(?9\d{2}\)?\s?[\d\s\-]{7,10}'
+        """Извлекает контактную информацию и делает телефоны кликабельными"""
+        phone_pattern = r'(\+?[78][\s\-]?\(?9\d{2}\)?\s?[\d\s\-]{7,10})'
         phones = re.findall(phone_pattern, text)
         
         username_pattern = r'@\w+'
@@ -153,9 +146,12 @@ class SimpleChannelParser:
         
         contacts = []
         if phones:
-            contacts.extend(phones[:1])
+            # Делаем телефоны кликабельными
+            for phone in phones[:2]:  # Берем максимум 2 телефона
+                clean_phone = re.sub(r'[^\d+]', '', phone)
+                contacts.append(f'<a href="tel:{clean_phone}">{phone}</a>')
         if usernames:
-            contacts.extend(usernames[:1])
+            contacts.extend(usernames[:2])  # Берем максимум 2 username
             
         return ' • '.join(contacts) if contacts else "См. в канале"
     
@@ -187,8 +183,8 @@ class SimpleChannelParser:
                     'title': '🐱 Котенок Мурзик ищет дом',
                     'description': 'Возраст: 2 месяца, мальчик, рыжий окрас. Здоров, привит, очень игривый.',
                     'date': '03.08.2025 14:30',
-                    'url': 'https://t.me/Lapki_ruchki_Yalta_help/1001',
-                    'contact': '@volunteer1 • +7 978 123-45-67',
+                    'url': 'https://t.me/lapki_ruchki_yalta/1001',
+                    'contact': '<a href="tel:+79781234567">+7 978 123-45-67</a> • @volunteer1',
                     'photo_url': 'https://via.placeholder.com/600x400?text=Котенок+Мурзик',
                     'has_photo': True,
                     'type': 'cats'
@@ -201,8 +197,8 @@ class SimpleChannelParser:
                     'title': '🐶 Щенок Бобик ищет дом',
                     'description': 'Возраст: 3 месяца, мальчик, черный окрас. Здоров, привит, активный.',
                     'date': '03.08.2025 15:45',
-                    'url': 'https://t.me/yalta_aninmals/2001',
-                    'contact': '@dog_volunteer • +7 978 765-43-21',
+                    'url': 'https://t.me/lapki_ruchki_yalta/2001',
+                    'contact': '<a href="tel:+79787654321">+7 978 765-43-21</a> • @dog_volunteer',
                     'photo_url': 'https://via.placeholder.com/600x400?text=Щенок+Бобик',
                     'has_photo': True,
                     'type': 'dogs'
@@ -247,7 +243,7 @@ class CatBotWithPhotos:
                 f"{post['description']}\n\n"
                 f"📅 {post['date']}\n"
                 f"📞 {post['contact']}\n"
-                f"🔗 <a href='{post['url']}'>Открыть в канале</a>"
+                f"🔗 <a href='{post['url']}'>Открыть в группе</a>"
             )
             
             if len(post_text) > 1024:
@@ -261,7 +257,7 @@ class CatBotWithPhotos:
                         caption=post_text,
                         parse_mode="HTML",
                         reply_markup=types.InlineKeyboardMarkup().add(
-                            types.InlineKeyboardButton("📢 Открыть в канале", url=post['url'])
+                            types.InlineKeyboardButton("📢 Открыть в группе", url=post['url'])
                         )
                     )
                     return
@@ -274,7 +270,7 @@ class CatBotWithPhotos:
                 parse_mode="HTML",
                 disable_web_page_preview=False,
                 reply_markup=types.InlineKeyboardMarkup().add(
-                    types.InlineKeyboardButton("📢 Открыть в канале", url=post['url'])
+                    types.InlineKeyboardButton("📢 Открыть в группе", url=post['url'])
                 )
             )
             
@@ -290,17 +286,17 @@ class CatBotWithPhotos:
                 self.bot.send_message(
                     chat_id,
                     "😿 Сейчас нет актуальных объявлений.\n"
-                    f"📢 Проверьте канал: {self.parser.channels[0]['url'] if animal_type == 'cats' else self.parser.channels[1]['url']}"
+                    f"📢 Проверьте группу: {self.parser.channels[0]['url']}"
                 )
                 return
             
-            channel_name = "Лапки-ручки Ялта" if animal_type == 'cats' else "Ялта Животные"
-            channel_url = self.parser.channels[0]['url'] if animal_type == 'cats' else self.parser.channels[1]['url']
+            channel_name = "Лапки-ручки Ялта"
+            channel_url = self.parser.channels[0]['url']
             
             self.bot.send_message(
                 chat_id,
-                f"{'🐱' if animal_type == 'cats' else '🐶'} <b>{'КОШКИ' if animal_type == 'cats' else 'СОБАКИ'} ИЩУТ ДОМ</b>\n\n"
-                f"📢 Последние объявления из канала:\n"
+                f"{'🐱'} <b>{'КОШКИ ИЩУТ ДОМ'}</b>\n\n"
+                f"📢 Последние объявления из группы:\n"
                 f"<a href='{channel_url}'>{channel_name}</a>",
                 parse_mode="HTML"
             )
@@ -312,9 +308,9 @@ class CatBotWithPhotos:
             self.bot.send_message(
                 chat_id,
                 "💡 <b>Как помочь?</b>\n\n"
-                f"🏠 <b>Взять {'кошку' if animal_type == 'cats' else 'собаку'}:</b>\nСвяжитесь по контактам из объявления\n\n"
-                f"📢 <b>Канал:</b> {channel_url}\n\n"
-                "🤝 <b>Стать волонтером:</b>\nНапишите в канал",
+                f"🏠 <b>Взять кошку:</b>\nСвяжитесь по контактам из объявления\n\n"
+                f"📢 <b>Группа:</b> {channel_url}\n\n"
+                "🤝 <b>Стать волонтером:</b>\nНапишите в группу",
                 parse_mode="HTML"
             )
             
@@ -323,8 +319,8 @@ class CatBotWithPhotos:
             self.bot.send_message(
                 chat_id,
                 f"⚠️ Ошибка загрузки объявлений\n\n"
-                f"Попробуйте позже или посетите канал:\n"
-                f"{self.parser.channels[0]['url'] if animal_type == 'cats' else self.parser.channels[1]['url']}"
+                f"Попробуйте позже или посетите группу:\n"
+                f"{self.parser.channels[0]['url']}"
             )
 
     def get_main_keyboard(self):
@@ -337,7 +333,7 @@ class CatBotWithPhotos:
     def get_adoption_keyboard(self):
         """Клавиатура пристройства"""
         markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-        markup.add("🐱 Кошки ищут дом", "🐶 Собаки ищут дом")
+        markup.add("🐱 Кошки ищут дом")
         markup.add("📝 Подать объявление")
         markup.add("🔙 Назад")
         return markup
@@ -449,10 +445,7 @@ class CatBotWithPhotos:
 Выберите действие:
 
 🐱 <b>Кошки ищут дом</b>
-Актуальные объявления из канала
-
-🐶 <b>Собаки ищут дом</b>
-Актуальные объявления из канала
+Актуальные объявления из группы
 
 📝 <b>Подать объявление</b>
 Как разместить свое объявление"""
@@ -467,22 +460,17 @@ class CatBotWithPhotos:
                 elif text == "🐱 Кошки ищут дом":
                     self.send_channel_posts(chat_id, 'cats')
                 
-                elif text == "🐶 Собаки ищут дом":
-                    self.send_channel_posts(chat_id, 'dogs')
-                
                 elif text == "📝 Подать объявление":
                     info_text = f"""📝 <b>Подать объявление</b>
 
-📢 <b>Каналы для объявлений:</b>
-<a href="{self.parser.channels[0]['url']}">Лапки-ручки Ялта помощь</a> (кошки)
-<a href="{self.parser.channels[1]['url']}">Ялта Животные</a> (собаки)
+📢 <b>Группа для объявлений:</b>
+<a href="{self.parser.channels[0]['url']}">Лапки-ручки Ялта</a>
 
 ✍️ <b>Как подать:</b>
-1️⃣ Перейти в канал
+1️⃣ Перейти в группу
 2️⃣ Написать администраторам
 3️⃣ Или связаться с координаторами:
-   • Кошки: +7 978 000-00-01
-   • Собаки: +7 978 000-00-02
+   • Кошки: <a href="tel:+79781449070">+7 978 144-90-70</a>
 
 📋 <b>Нужная информация:</b>
 🔹 Фото животного
@@ -497,17 +485,14 @@ class CatBotWithPhotos:
                     contacts_text = """📞 <b>КОНТАКТЫ</b>
 
 👥 <b>Координаторы:</b>
-🔹 Кошки: +7 978 144-90-70
-🔹 Собаки: +7 978 000-00-02
-🔹 Лечение: +7 978 000-00-03
+🔹 Кошки: <a href="tel:+79781449070">+7 978 144-90-70</a>
 
 🏥 <b>Клиники:</b>
-🔹 "Айболит": +7 978 000-00-04
-🔹 "ВетМир": +7 978 000-00-05
+🔹 "Айболит": <a href="tel:+79780000004">+7 978 000-00-04</a>
+🔹 "ВетМир": <a href="tel:+79780000005">+7 978 000-00-05</a>
 
 📱 <b>Социальные сети:</b>
-🔹 Telegram: @yalta_animals
-🔹 Instagram: @yalta_street_animals"""
+🔹 Telegram: @yalta_animals"""
                     
                     self.bot.send_message(chat_id, contacts_text, parse_mode="HTML")
                 
@@ -518,8 +503,8 @@ class CatBotWithPhotos:
 Помощь бездомным животным Ялты
 
 📊 <b>Достижения:</b>
-🔹 Стерилизовано: 500+ кошек, 200+ собак
-🔹 Пристроено: 200+ котят, 100+ щенков
+🔹 Стерилизовано: 500+ кошек
+🔹 Пристроено: 200+ котят
 🔹 Волонтеров: 50+ активных
 
 💰 <b>Поддержать:</b>
@@ -647,8 +632,8 @@ if __name__ == "__main__":
 ✅ По направлению волонтеров
 
 📞 <b>Контакты:</b>
-🔹 Координатор: +7 978 000-00-10
-🔹 Клиника "Айболит": +7 978 000-00-11
+🔹 Координатор: <a href="tel:+79780000010">+7 978 000-00-10</a>
+🔹 Клиника "Айболит": <a href="tel:+79780000011">+7 978 000-00-11</a>
 
 📍 <b>Адреса:</b>
 ул. Кирова, 15 (пн-пт 9:00-18:00)""")
@@ -658,8 +643,8 @@ if __name__ == "__main__":
             f.write("""<b>💵 ПЛАТНАЯ СТЕРИЛИЗАЦИЯ</b>
 
 🏥 <b>Клиники:</b>
-🔹 "Айболит": от 3000₽ (кошки), от 5000₽ (собаки)
-🔹 "ВетМир": от 2500₽ (кошки), от 4500₽ (собаки)
+🔹 "Айболит": от 3000₽ (кошки)
+🔹 "ВетМир": от 2500₽ (кошки)
 
 🌟 <b>Включено:</b>
 ✔️ Операция
@@ -668,8 +653,8 @@ if __name__ == "__main__":
 ✔️ Консультация
 
 📞 <b>Запись:</b>
-🔹 "Айболит": +7 978 000-00-12
-🔹 "ВетМир": +7 978 000-00-13
+🔹 "Айболит": <a href="tel:+79780000012">+7 978 000-00-12</a>
+🔹 "ВетМир": <a href="tel:+79780000013">+7 978 000-00-13</a>
 
 💡 <b>Скидки:</b>
 🔸 Волонтерам - 20%
