@@ -13,8 +13,9 @@ from typing import Dict, List, Optional
 
 # 🔧 Настройка логирования
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    filename='bot.log'
 )
 logger = logging.getLogger(__name__)
 
@@ -79,12 +80,10 @@ class SimpleChannelParser:
     def parse_message_div(self, div, channel) -> Optional[Dict]:
         """Парсит пост, извлекая текст и фото"""
         try:
-            # Базовые данные
             post_id = div.get('data-post', '').split('/')[-1] or 'unknown'
             text_div = div.find('div', class_='tgme_widget_message_text')
             text = text_div.get_text(strip=True) if text_div else ""
             
-            # Дата
             date_elem = div.find('time', datetime=True)
             date_str = "Недавно"
             if date_elem:
@@ -94,7 +93,6 @@ class SimpleChannelParser:
                 except:
                     pass
             
-            # Фото (основное превью)
             photo_url = None
             photo_wrap = div.find('a', class_='tgme_widget_message_photo_wrap')
             if photo_wrap and photo_wrap.get('style'):
@@ -142,13 +140,12 @@ class SimpleChannelParser:
         return clean_text
     
     def extract_contact(self, text: str) -> str:
-        """Извлекает контактную информацию с поддержкой кликабельных телефонов"""
-        # Улучшенный паттерн для номеров телефонов
+        """Извлекает контактную информацию"""
         phone_patterns = [
-            r'\+?7[\s\-]?9\d{2}[\s\-]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2}',  # +7 9XX XXX XX XX
-            r'\+?7[\s\-]?\(9\d{2}\)[\s\-]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2}',  # +7 (9XX) XXX XX XX
-            r'8[\s\-]?9\d{2}[\s\-]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2}',  # 8 9XX XXX XX XX
-            r'8[\s\-]?\(9\d{2}\)[\s\-]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2}',  # 8 (9XX) XXX XX XX
+            r'\+?7[\s\-]?9\d{2}[\s\-]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2}',
+            r'\+?7[\s\-]?\(9\d{2}\)[\s\-]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2}',
+            r'8[\s\-]?9\d{2}[\s\-]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2}',
+            r'8[\s\-]?\(9\d{2}\)[\s\-]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2}',
         ]
         
         phones = []
@@ -156,10 +153,8 @@ class SimpleChannelParser:
             found_phones = re.findall(pattern, text)
             phones.extend(found_phones)
         
-        # Очищаем и форматируем номера
         formatted_phones = []
-        for phone in phones[:2]:  # Максимум 2 телефона
-            # Убираем лишние символы
+        for phone in phones[:2]:
             clean_phone = re.sub(r'[^\d+]', '', phone)
             if clean_phone.startswith('8'):
                 clean_phone = '+7' + clean_phone[1:]
@@ -167,10 +162,8 @@ class SimpleChannelParser:
                 clean_phone = '+' + clean_phone
             elif not clean_phone.startswith('+7'):
                 clean_phone = '+7' + clean_phone
-            
             formatted_phones.append(clean_phone)
         
-        # Находим никнеймы
         username_pattern = r'@\w+'
         usernames = re.findall(username_pattern, text)
         
@@ -183,78 +176,40 @@ class SimpleChannelParser:
         return ' • '.join(contacts) if contacts else "См. в канале"
     
     def is_animal_related(self, text: str, animal_type: str) -> bool:
-        """Проверяет, относится ли пост к животным с улучшенными ключевыми словами"""
+        """Проверяет, относится ли пост к животным"""
         text_lower = text.lower()
         
         if animal_type == 'cats':
-            # Расширенные ключевые слова для кошек
             cat_keywords = [
-                # Основные слова
                 'кот', 'кошк', 'котен', 'котик', 'мурз', 'мяу',
                 'котята', 'котёнок', 'котёнка', 'кошечка',
-                # Действия и состояния
                 'ищет дом', 'нужен дом', 'в добрые руки', 'пристрой',
-                'требуется дом', 'ищем дом', 'нуждается в доме',
-                'отдам', 'отдается', 'забрать', 'взять',
-                # Медицинские термины
-                'кастрир', 'стерил', 'привит', 'обработан', 'здоров',
-                'вакцинир', 'чип', 'паспорт', 'ветеринар',
-                # Характеристики
-                'ласков', 'игрив', 'спокойн', 'дружелюбн', 'социализир',
-                'к людям', 'к детям', 'к другим', 'характер',
-                # Помощь
-                'помощь', 'спас', 'волонтер', 'приют', 'передержка',
-                'куратор', 'опека'
+                'отдам', 'отдается', 'забрать', 'взять'
             ]
-            
-            # Исключающие слова (чтобы не попадали нерелевантные посты)
             exclusion_words = [
                 'продам', 'продается', 'купл', 'цена', 'стоимость',
                 'корм для', 'аксессуар', 'игрушк', 'товар'
             ]
-            
-        else:  # dogs
-            # Расширенные ключевые слова для собак
-            cat_keywords = [
-                # Основные слова
+        else:
+            dog_keywords = [
                 'собак', 'щен', 'пес', 'псин', 'лайк', 'дворняж',
                 'щенок', 'щенки', 'собачк', 'песик',
-                # Породы (основные)
-                'овчарк', 'лабрадор', 'хаски', 'терьер', 'шпиц',
-                'такс', 'чихуахуа', 'йорк', 'мопс', 'бульдог',
-                'дог', 'ротвейлер', 'доберман', 'спаниель',
-                # Действия и состояния  
                 'ищет дом', 'нужен дом', 'в добрые руки', 'пристрой',
-                'требуется дом', 'ищем дом', 'нуждается в доме',
-                'отдам', 'отдается', 'забрать', 'взять',
-                # Медицинские термины
-                'кастрир', 'стерил', 'привит', 'обработан', 'здоров',
-                'вакцинир', 'чип', 'паспорт', 'ветеринар',
-                # Характеристики
-                'добр', 'верн', 'послушн', 'активн', 'спокойн',
-                'дружелюбн', 'социализир', 'к людям', 'к детям',
-                'охранн', 'сторож', 'компаньон', 'характер',
-                # Размер
-                'крупн', 'средн', 'мелк', 'больш', 'маленьк',
-                # Помощь
-                'помощь', 'спас', 'волонтер', 'приют', 'передержка',
-                'куратор', 'опека'
+                'отдам', 'отдается', 'забрать', 'взять'
             ]
-            
             exclusion_words = [
                 'продам', 'продается', 'купл', 'цена', 'стоимость',
                 'корм для', 'аксессуар', 'игрушк', 'товар', 'услуг'
             ]
         
-        # Проверяем исключающие слова
         if any(excl_word in text_lower for excl_word in exclusion_words):
             return False
         
-        # Проверяем наличие ключевых слов
-        return any(keyword in text_lower for keyword in cat_keywords)
+        keywords = cat_keywords if animal_type == 'cats' else dog_keywords
+        return any(keyword in text_lower for keyword in keywords)
     
     def get_mock_posts(self, channel_type: str = 'cats') -> List[Dict]:
-        """Возвращает тестовые посты с фото"""
+        """Возвращает тестовые посты"""
         if channel_type == 'cats':
             return [
                 {
@@ -285,13 +240,13 @@ class SimpleChannelParser:
             ]
     
     def get_cached_posts(self, channel_type: str = 'all') -> List[Dict]:
-        """Возвращает кэшированные или обновленные посты"""
+        """Возвращает кэшированные посты"""
         if (not self.last_update or 
             (datetime.now() - self.last_update).seconds > 1800):
             try:
                 return self.get_channel_posts(channel_type)
-            except:
-                pass
+            except Exception as e:
+                logger.error(f"Ошибка обновления кэша: {e}")
         return [p for p in self.posts_cache if channel_type == 'all' or p['type'] == channel_type] or self.get_mock_posts(channel_type)
 
 class CatBotWithPhotos:
@@ -300,8 +255,10 @@ class CatBotWithPhotos:
     def __init__(self):
         self.token = os.environ.get('TOKEN')
         if not self.token:
-            logger.error("❌ TOKEN не найден!")
-            exit(1)
+            logger.error("❌ TOKEN не найден! Убедитесь, что переменная окружения TOKEN установлена")
+            raise ValueError("Токен бота не найден")
+        
+        logger.info(f"✅ Токен бота получен (длина: {len(self.token)} символов)")
         
         self.bot = telebot.TeleBot(self.token)
         self.parser = SimpleChannelParser()
@@ -314,8 +271,7 @@ class CatBotWithPhotos:
         self.setup_routes()
     
     def format_phone_links(self, text: str) -> str:
-        """Делает телефоны в тексте кликабельными"""
-        # Паттерны для поиска телефонов
+        """Делает телефоны кликабельными"""
         phone_patterns = [
             (r'(\+7\d{10})', r'<a href="tel:\1">\1</a>'),
             (r'(\+7\s?\d{3}\s?\d{3}\s?\d{2}\s?\d{2})', lambda m: f'<a href="tel:{re.sub(r"[^+\d]", "", m.group(1))}">{m.group(1)}</a>'),
@@ -332,11 +288,9 @@ class CatBotWithPhotos:
         return result
 
     def send_post(self, chat_id: int, post: Dict):
-        """Отправляет один пост с фото или текстом"""
+        """Отправляет один пост"""
         try:
             emoji = '🐱' if post['type'] == 'cats' else '🐶'
-            
-            # Форматируем контакты с кликабельными телефонами
             formatted_contact = self.format_phone_links(post['contact'])
             
             post_text = (
@@ -379,7 +333,7 @@ class CatBotWithPhotos:
             logger.error(f"❌ Ошибка отправки поста: {e}")
 
     def send_channel_posts(self, chat_id: int, animal_type: str = 'cats'):
-        """Отправляет все посты с фото"""
+        """Отправляет посты из канала"""
         try:
             posts = self.parser.get_cached_posts(animal_type)
             
@@ -407,7 +361,6 @@ class CatBotWithPhotos:
                 self.send_post(chat_id, post)
                 time.sleep(0.5)
             
-            # Кликабельные телефоны в итоговом сообщении
             help_text = self.format_phone_links(
                 "💡 <b>Как помочь?</b>\n\n"
                 f"🏠 <b>Взять {'кошку' if animal_type == 'cats' else 'собаку'}:</b>\nСвяжитесь по контактам из объявления\n\n"
@@ -450,11 +403,15 @@ class CatBotWithPhotos:
         return markup
 
     def load_html_file(self, filename: str) -> str:
-        """Загружает HTML файл из папки assets"""
+        """Загружает HTML файл"""
         try:
+            if not os.path.exists(f'assets/{filename}'):
+                logger.error(f"Файл не найден: assets/{filename}")
+                return f"Файл {filename} не найден"
+                
             with open(f'assets/{filename}', 'r', encoding='utf-8') as f:
                 content = f.read()
-                return self.format_phone_links(content)  # Делаем телефоны кликабельными
+                return self.format_phone_links(content)
         except Exception as e:
             logger.error(f"❌ Ошибка загрузки HTML: {e}")
             return f"⚠️ Информация временно недоступна ({filename})"
@@ -464,10 +421,12 @@ class CatBotWithPhotos:
         
         @self.bot.message_handler(commands=['start'])
         def start_handler(message):
-            self.stats["users"].add(message.from_user.id)
-            self.stats["messages"] += 1
-            
-            welcome_text = """👋 <b>Добро пожаловать!</b>
+            try:
+                logger.info(f"🆕 Новый пользователь: {message.from_user.id}")
+                self.stats["users"].add(message.from_user.id)
+                self.stats["messages"] += 1
+                    
+                welcome_text = """👋 <b>Добро пожаловать!</b>
 
 🐾 Помощник по уличным животным Ялты
 
@@ -478,17 +437,23 @@ class CatBotWithPhotos:
 ℹ️ <b>О проекте</b> - наша деятельность
 
 <b>Экстренная помощь:</b> <a href="tel:+79781449070">+7 978 144-90-70</a>"""
-            
-            self.bot.send_message(
-                message.chat.id, 
-                welcome_text, 
-                parse_mode="HTML",
-                reply_markup=self.get_main_keyboard()
-            )
+                
+                self.bot.send_message(
+                    message.chat.id, 
+                    welcome_text, 
+                    parse_mode="HTML",
+                    reply_markup=self.get_main_keyboard()
+                )
+                logger.info(f"✅ Приветственное сообщение отправлено пользователю {message.from_user.id}")
+            except Exception as e:
+                logger.error(f"❌ Ошибка в обработчике /start: {e}")
+                self.bot.send_message(
+                    message.chat.id,
+                    "⚠️ Произошла ошибка. Пожалуйста, попробуйте позже."
+                )
         
         @self.bot.message_handler(commands=['update'])
         def update_handler(message):
-            """Обновление постов (для админов)"""
             self.parser.posts_cache = []
             self.parser.last_update = None
             self.bot.send_message(message.chat.id, "🔄 Обновляю посты...")
@@ -712,7 +677,7 @@ class CatBotWithPhotos:
             result = self.bot.set_webhook(url=full_url)
             
             if result:
-                logger.info(f"✅ Webhook: {full_url}")
+                logger.info(f"✅ Webhook установлен: {full_url}")
                 return True
             else:
                 logger.error("❌ Не удалось установить webhook")
@@ -723,10 +688,9 @@ class CatBotWithPhotos:
             return False
     
     def run(self):
-        """Запуск бота с фото-поддержкой"""
-        logger.info("🚀 Запуск AnimalBot с поддержкой фото...")
+        """Запуск бота"""
+        logger.info("🚀 Запуск AnimalBot...")
         
-        # Предзагрузка постов
         try:
             posts = self.parser.get_cached_posts()
             logger.info(f"✅ Предзагружено {len(posts)} постов")
@@ -734,13 +698,14 @@ class CatBotWithPhotos:
             logger.warning(f"⚠️ Ошибка предзагрузки: {e}")
         
         if self.setup_webhook():
+            logger.info(f"🌐 Webhook сервер запущен на порту {self.port}")
             self.app.run(host='0.0.0.0', port=self.port)
         else:
-            logger.error("🚨 Ошибка webhook, запуск в polling режиме")
-            self.bot.polling()
+            logger.info("🔃 Запуск в polling режиме")
+            self.bot.polling(none_stop=True)
 
 if __name__ == "__main__":
-    # Создаем необходимые папки и файлы, если их нет
+    # Создаем необходимые папки и файлы
     os.makedirs('assets/images', exist_ok=True)
     
     # Создаем файлы с информацией о стерилизации
@@ -790,10 +755,9 @@ if __name__ == "__main__":
 📞 <b>Консультации:</b>
 <a href="tel:+79781449070">+7 978 144-90-70</a>""")
 
-    # Создаем placeholder изображение, если его нет
-    if not os.path.exists('assets/images/sterilization.jpg'):
-        # Здесь можно добавить код для создания placeholder изображения
-        pass
-
-    bot = CatBotWithPhotos()
-    bot.run()
+    # Запуск бота
+    try:
+        bot = CatBotWithPhotos()
+        bot.run()
+    except Exception as e:
+        logger.critical(f"🚨 Критическая ошибка при запуске бота: {e}")
