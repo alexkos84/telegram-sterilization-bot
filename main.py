@@ -25,7 +25,7 @@ class SimpleChannelParser:
         self.channels = [
             {
                 'username': 'Lapki_ruchki_Yalta_help',
-                'url': 'https://t.me/Lapki_ruchki_Yalta_help',
+                'url': 'https://t.me/lapki_ruchki_yalta',
                 'type': 'cats'
             },
             {
@@ -680,3 +680,4 @@ if __name__ == "__main__":
 
     bot = CatBotWithPhotos()
     bot.run()
+
