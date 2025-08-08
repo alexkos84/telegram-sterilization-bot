@@ -24,7 +24,7 @@ class SimpleChannelParser:
     def __init__(self):
         self.channels = [
             {
-                'username': 'Lapki_ruchki_Yalta_help',
+                'username': 'lapki_ruchki_yalta',
                 'url': 'https://t.me/lapki_ruchki_yalta',
                 'type': 'cats'
             },
@@ -185,7 +185,7 @@ class SimpleChannelParser:
                     'title': '🐱 Котенок Мурзик ищет дом',
                     'description': 'Возраст: 2 месяца, мальчик, рыжий окрас. Здоров, привит, очень игривый.',
                     'date': '03.08.2025 14:30',
-                    'url': 'https://t.me/Lapki_ruchki_Yalta_help/1001',
+                    'url': 'https://t.me/lapki_ruchki_yalta/1001',
                     'contact': '@volunteer1 • +7 978 123-45-67',
                     'photo_url': 'https://via.placeholder.com/600x400?text=Котенок+Мурзик',
                     'has_photo': True,
@@ -680,4 +680,5 @@ if __name__ == "__main__":
 
     bot = CatBotWithPhotos()
     bot.run()
+
 
