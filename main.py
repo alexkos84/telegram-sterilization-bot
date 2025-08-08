@@ -19,7 +19,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 class SimpleGroupParser:
-    """Парсер открытых групп с животными"""
+    """Усовершенствованный парсер открытых групп Telegram"""
     
     def __init__(self):
         self.groups = [
@@ -36,9 +36,14 @@ class SimpleGroupParser:
         ]
         self.posts_cache = []
         self.last_update = None
+        self.session = requests.Session()
+        self.session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7'
+        })
     
     def get_group_posts(self, group_type: str = 'all', limit: int = 3) -> List[Dict]:
-        """Получает последние посты с фото из указанного типа группы"""
+        """Получает последние посты из группы с улучшенным парсингом"""
         try:
             posts = []
             for group in self.groups:
@@ -46,45 +51,78 @@ class SimpleGroupParser:
                     continue
                     
                 web_url = f'https://t.me/s/{group["username"]}'
-                logger.info(f"🌐 Загрузка постов с {web_url}")
-                response = requests.get(web_url, headers={
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-                }, timeout=10)
-                response.raise_for_status()
+                logger.info(f"🌐 Загружаю посты из {web_url}")
                 
-                soup = BeautifulSoup(response.content, 'html.parser')
-                message_divs = soup.find_all('div', class_='tgme_widget_message')
-                
-                for div in message_divs[:limit*2]:
-                    post_data = self.parse_message_div(div, group)
-                    if post_data and self.is_animal_related(post_data.get('text', ''), group['type']):
-                        posts.append(post_data)
+                try:
+                    response = self.session.get(web_url, timeout=15)
+                    response.raise_for_status()
+                    
+                    # Проверка что это действительно страница группы
+                    if "tgme_widget_message" not in response.text:
+                        logger.error(f"❌ Не найдены сообщения на странице {web_url}")
+                        continue
                         
-                    if len(posts) >= limit:
-                        break
+                    soup = BeautifulSoup(response.content, 'html.parser')
+                    
+                    # Ищем все сообщения
+                    message_wrappers = soup.find_all('div', class_='tgme_widget_message_wrap')
+                    
+                    if not message_wrappers:
+                        logger.warning(f"⚠️ В группе {group['username']} нет сообщений")
+                        continue
+                        
+                    logger.info(f"🔍 Найдено {len(message_wrappers)} сообщений")
+                    
+                    for wrap in message_wrappers[:limit*2]:
+                        try:
+                            message_div = wrap.find('div', class_='tgme_widget_message')
+                            if not message_div:
+                                continue
+                                
+                            post_data = self.parse_message_div(message_div, group)
+                            if post_data and self.is_animal_related(post_data.get('text', ''), group['type']):
+                                posts.append(post_data)
+                                
+                            if len(posts) >= limit:
+                                break
+                                
+                        except Exception as e:
+                            logger.error(f"❌ Ошибка парсинга сообщения: {e}")
+                            continue
+                            
+                except requests.exceptions.RequestException as e:
+                    logger.error(f"❌ Ошибка запроса к {web_url}: {e}")
+                    continue
+                except Exception as e:
+                    logger.error(f"❌ Неожиданная ошибка при обработке {web_url}: {e}")
+                    continue
+                
+                time.sleep(1)  # Задержка между запросами
             
             if posts:
                 self.posts_cache = posts
                 self.last_update = datetime.now()
-                logger.info(f"✅ Получено {len(posts)} постов (с фото: {sum(1 for p in posts if p['photo_url'])})")
+                logger.info(f"✅ Успешно получено {len(posts)} постов")
             else:
-                logger.warning("⚠️ Не найдено подходящих постов")
+                logger.warning("⚠️ Не найдено подходящих постов, использую тестовые данные")
                 
             return posts or self.get_mock_posts(group_type)
             
         except Exception as e:
-            logger.error(f"❌ Ошибка парсинга: {e}")
+            logger.error(f"❌ Критическая ошибка в get_group_posts: {e}")
             return self.get_mock_posts(group_type)
     
     def parse_message_div(self, div, group) -> Optional[Dict]:
-        """Парсит пост, извлекая текст и фото"""
+        """Парсинг отдельного сообщения"""
         try:
             # Базовые данные
-            post_id = div.get('data-post', '').split('/')[-1] or 'unknown'
-            text_div = div.find('div', class_='tgme_widget_message_text')
-            text = text_div.get_text(strip=True) if text_div else ""
+            post_id = div.get('data-post', '').split('/')[-1] or f"unknown_{int(time.time())}"
             
-            # Дата
+            # Текст сообщения
+            text_div = div.find('div', class_='tgme_widget_message_text')
+            text = text_div.get_text('\n', strip=True) if text_div else ""
+            
+            # Дата сообщения
             date_elem = div.find('time', datetime=True)
             date_str = "Недавно"
             if date_elem:
@@ -94,17 +132,17 @@ class SimpleGroupParser:
                 except:
                     pass
             
-            # Фото (основное превью)
+            # Фото/медиа
             photo_url = None
-            photo_wrap = div.find('a', class_='tgme_widget_message_photo_wrap')
-            if photo_wrap and photo_wrap.get('style'):
-                match = re.search(r"background-image:url\('(.*?)'\)", photo_wrap['style'])
+            media_div = div.find('a', class_='tgme_widget_message_photo_wrap')
+            if media_div and media_div.get('style'):
+                match = re.search(r"background-image:url\('(.*?)'\)", media_div['style'])
                 if match:
                     photo_url = match.group(1)
             
-            if not text:
+            if not text and not photo_url:
                 return None
-            
+                
             return {
                 'id': post_id,
                 'text': text,
@@ -119,11 +157,11 @@ class SimpleGroupParser:
             }
             
         except Exception as e:
-            logger.error(f"❌ Ошибка парсинга div: {e}")
+            logger.error(f"❌ Ошибка парсинга сообщения: {e}")
             return None
     
     def extract_title(self, text: str, animal_type: str) -> str:
-        """Извлекает заголовок из текста поста"""
+        """Извлекает заголовок из текста"""
         lines = text.split('\n')
         for line in lines[:3]:
             line = line.strip()
@@ -135,14 +173,14 @@ class SimpleGroupParser:
         return "Кошка ищет дом" if animal_type == 'cats' else "Собака ищет дом"
     
     def extract_description(self, text: str) -> str:
-        """Извлекает описание из текста"""
+        """Извлекает описание"""
         clean_text = re.sub(r'@\w+|https?://\S+|\+?\d[\d\s\-\(\)]+', '', text)
         if len(clean_text) > 200:
             return clean_text[:200] + "..."
         return clean_text
     
     def extract_contact(self, text: str) -> str:
-        """Извлекает контактную информацию"""
+        """Извлекает контакты"""
         phone_pattern = r'\+?[78][\s\-]?\(?9\d{2}\)?\s?[\d\s\-]{7,10}'
         phones = re.findall(phone_pattern, text)
         
@@ -158,26 +196,21 @@ class SimpleGroupParser:
         return ' • '.join(contacts) if contacts else "См. в группе"
     
     def is_animal_related(self, text: str, animal_type: str) -> bool:
-        """Проверяет, относится ли пост к животным"""
-        if animal_type == 'cats':
-            cat_keywords = [
-                'кот', 'кошк', 'котен', 'котик', 'мурз', 'мяу',
-                'кастр', 'стерил', 'привит', 'пристрой', 'дом',
-                'котята', 'мама-кошка', 'беременная', 'питомец'
-            ]
-            text_lower = text.lower()
-            return any(keyword in text_lower for keyword in cat_keywords)
-        else:
-            dog_keywords = [
-                'собак', 'щен', 'пес', 'гав', 'лайк', 'овчарк',
-                'дог', 'терьер', 'пристрой', 'дом', 'щенок',
-                'щенки', 'питомец', 'породист'
-            ]
-            text_lower = text.lower()
-            return any(keyword in text_lower for keyword in dog_keywords)
+        """Проверяет относится ли пост к животным"""
+        keywords = [
+            'кот', 'кошк', 'котен', 'котик', 'мурз', 'мяу',
+            'собак', 'щен', 'пес', 'гав', 'лайк', 'овчарк',
+            'пристрой', 'дом', 'питомец', 'помощь', 'найденыш'
+        ] if animal_type == 'all' else (
+            ['кот', 'кошк', 'котен', 'котик', 'мурз', 'мяу'] if animal_type == 'cats' else
+            ['собак', 'щен', 'пес', 'гав', 'лайк', 'овчарк']
+        )
+        
+        text_lower = text.lower()
+        return any(keyword in text_lower for keyword in keywords)
     
     def get_mock_posts(self, group_type: str = 'cats') -> List[Dict]:
-        """Возвращает тестовые посты с фото"""
+        """Тестовые данные"""
         if group_type == 'cats':
             return [
                 {
@@ -208,7 +241,7 @@ class SimpleGroupParser:
             ]
     
     def get_cached_posts(self, group_type: str = 'all') -> List[Dict]:
-        """Возвращает кэшированные или обновленные посты"""
+        """Получает кэшированные посты"""
         if (not self.last_update or 
             (datetime.now() - self.last_update).seconds > 1800):
             try:
@@ -218,7 +251,7 @@ class SimpleGroupParser:
         return [p for p in self.posts_cache if group_type == 'all' or p['type'] == group_type] or self.get_mock_posts(group_type)
 
 class CatBotWithPhotos:
-    """Бот с поддержкой фото из постов"""
+    """Основной класс бота"""
     
     def __init__(self):
         self.token = os.environ.get('TOKEN')
@@ -227,7 +260,7 @@ class CatBotWithPhotos:
             exit(1)
         
         self.bot = telebot.TeleBot(self.token)
-        self.parser = SimpleGroupParser()  # Используем парсер групп вместо каналов
+        self.parser = SimpleGroupParser()
         self.app = Flask(__name__)
         self.port = int(os.environ.get('PORT', 8080))
         self.webhook_url = os.environ.get('WEBHOOK_URL')
@@ -237,7 +270,7 @@ class CatBotWithPhotos:
         self.setup_routes()
     
     def send_post(self, chat_id: int, post: Dict):
-        """Отправляет один пост с фото или текстом"""
+        """Отправляет пост с фото"""
         try:
             emoji = '🐱' if post['type'] == 'cats' else '🐶'
             post_text = (
@@ -280,7 +313,7 @@ class CatBotWithPhotos:
             logger.error(f"❌ Ошибка отправки поста: {e}")
 
     def send_group_posts(self, chat_id: int, animal_type: str = 'cats'):
-        """Отправляет все посты с фото"""
+        """Отправляет посты из группы"""
         try:
             posts = self.parser.get_cached_posts(animal_type)
             
@@ -326,14 +359,14 @@ class CatBotWithPhotos:
             )
 
     def get_main_keyboard(self):
-        """Главная клавиатура"""
+        """Главное меню"""
         markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
         markup.add("🏥 Стерилизация", "🏠 Пристройство")
         markup.add("📞 Контакты", "ℹ️ О проекте")
         return markup
     
     def get_adoption_keyboard(self):
-        """Клавиатура пристройства"""
+        """Меню пристройства"""
         markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
         markup.add("🐱 Кошки ищут дом", "🐶 Собаки ищут дом")
         markup.add("📝 Подать объявление")
@@ -341,14 +374,14 @@ class CatBotWithPhotos:
         return markup
     
     def get_sterilization_keyboard(self):
-        """Клавиатура стерилизации"""
+        """Меню стерилизации"""
         markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
         markup.add("💰 Платная стерилизация", "🆓 Бесплатная стерилизация")
         markup.add("🔙 Назад")
         return markup
 
     def load_html_file(self, filename: str) -> str:
-        """Загружает HTML файл из папки assets"""
+        """Загружает HTML файл"""
         try:
             with open(f'assets/{filename}', 'r', encoding='utf-8') as f:
                 return f.read()
@@ -357,7 +390,7 @@ class CatBotWithPhotos:
             return f"⚠️ Информация временно недоступна ({filename})"
 
     def setup_handlers(self):
-        """Обработчики сообщений"""
+        """Настройка обработчиков"""
         
         @self.bot.message_handler(commands=['start'])
         def start_handler(message):
@@ -383,7 +416,7 @@ class CatBotWithPhotos:
         
         @self.bot.message_handler(commands=['update'])
         def update_handler(message):
-            """Обновление постов (для админов)"""
+            """Обновление постов"""
             self.parser.posts_cache = []
             self.parser.last_update = None
             self.bot.send_message(message.chat.id, "🔄 Обновляю посты...")
@@ -548,7 +581,7 @@ class CatBotWithPhotos:
             )
     
     def setup_routes(self):
-        """Flask маршруты"""
+        """Настройка маршрутов Flask"""
         
         @self.app.route(f'/{self.token}', methods=['POST'])
         def webhook():
@@ -611,8 +644,8 @@ class CatBotWithPhotos:
             return False
     
     def run(self):
-        """Запуск бота с фото-поддержкой"""
-        logger.info("🚀 Запуск AnimalBot с поддержкой фото...")
+        """Запуск бота"""
+        logger.info("🚀 Запуск AnimalBot...")
         
         # Предзагрузка постов
         try:
@@ -628,7 +661,7 @@ class CatBotWithPhotos:
             self.bot.polling()
 
 if __name__ == "__main__":
-    # Создаем необходимые папки и файлы, если их нет
+    # Создаем необходимые папки и файлы
     os.makedirs('assets/images', exist_ok=True)
     
     # Создаем файлы с информацией о стерилизации
@@ -674,10 +707,6 @@ if __name__ == "__main__":
 🔸 Волонтерам - 20%
 🔸 Многоквартирным кошкам - 15%""")
 
-    # Создаем placeholder изображение, если его нет
-    if not os.path.exists('assets/images/sterilization.jpg'):
-        # Здесь можно добавить код для создания placeholder изображения
-        pass
-
+    # Запуск бота
     bot = CatBotWithPhotos()
     bot.run()
