@@ -1,10 +1,22 @@
+# Для работы бота
+pyTelegramBotAPI==4.14.0  # Основная библиотека бота
+Flask==3.0.0              # Веб-сервер для webhook
+requests==2.31.0          # HTTP-запросы
+beautifulsoup4==4.12.2    # Парсинг HTML
+cloudscraper==1.2.71      # Обход Cloudflare
+lxml==5.1.0               # Ускоритель для BeautifulSoup (важно для парсинга)
 
-# Основные зависимости для полной версии бота с Telethon
-pyTelegramBotAPI==4.14.0
-Flask==3.0.0
-requests==2.31.0
-beautifulsoup4==4.12.2
-cloudscraper==1.2.71
-# Telethon для работы с Telegram API
-Telethon==1.32.1
+# Для работы с Telegram API (Telethon)
+Telethon==1.32.1          # Клиент Telegram API (для сложного парсинга)
+cryptography==42.0.3      # Шифрование (обязательно для Telethon)
+
+# Для базы данных (если нужно хранить посты)
+sqlalchemy==2.0.25        # ORM для работы с SQL
+psycopg2-binary==2.9.9    # PostgreSQL (если используете)
+aiosqlite==0.19.0         # Асинхронный SQLite (альтернатива)
+
+# Дополнительные утилиты
+python-dotenv==1.0.0      # Загрузка .env файлов
+pytz==2023.3              # Работа с временными зонами
+loguru==0.7.2             # Улучшенное логирование (опционально)
 
