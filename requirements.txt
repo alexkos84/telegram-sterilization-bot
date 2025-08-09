@@ -4,6 +4,7 @@ pyTelegramBotAPI==4.14.0
 Flask==3.0.0
 requests==2.31.0
 beautifulsoup4==4.12.2
-
+cloudscraper==1.2.71
 # Telethon для работы с Telegram API
 Telethon==1.32.1
+
