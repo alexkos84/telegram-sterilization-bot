@@ -22,8 +22,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-class YaltaPodslushanoParser:
-    """Парсер канала Ялта Подслушано с улучшенным извлечением медиа"""
+class AnimalPostsParser:
+    """Парсер постов о животных из канала Ялта Подслушано"""
     
     def __init__(self):
         self.channel = {
@@ -31,6 +31,14 @@ class YaltaPodslushanoParser:
             'url': 'https://t.me/yalta_podslushano',
             'name': 'Ялта Подслушано'
         }
+        self.animal_keywords = [
+            'кошка', 'кот', 'котёнок', 'котенок', 'кошечка', 'котэ',
+            'собака', 'пёс', 'пес', 'щенок', 'щенки', 'собачка',
+            'животное', 'питомец', 'зверь', 'зверёк', 'зверюшка',
+            'пристрой', 'потерял', 'нашел', 'найдён', 'пропал', 'пропала',
+            'приютить', 'передержка', 'ветеринар', 'корм', 'стерилизация',
+            'кастрация', 'лапа', 'хвост', 'усы', 'мяу', 'гав', 'мур'
+        ]
         self.posts_cache = []
         self.last_update = None
         self.last_attempt = None
@@ -55,8 +63,13 @@ class YaltaPodslushanoParser:
             'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
         ]
     
+    def is_animal_post(self, text: str) -> bool:
+        """Проверяет, относится ли пост к животным"""
+        text_lower = text.lower()
+        return any(keyword in text_lower for keyword in self.animal_keywords)
+    
     def clean_text(self, text: str) -> str:
-        """Очистка текста от лишних символов и форматирования"""
+        """Очистка текста от лишних символов"""
         cleaned = html.unescape(text)
         cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)
         symbol_replacements = {
@@ -68,8 +81,8 @@ class YaltaPodslushanoParser:
             cleaned = cleaned.replace(old, new)
         return cleaned.strip()
     
-    def get_channel_posts(self, limit: int = 5) -> List[Dict]:
-        """Получение постов с канала"""
+    def get_animal_posts(self, limit: int = 5) -> List[Dict]:
+        """Получает посты о животных"""
         self.last_attempt = datetime.now()
         
         try:
@@ -90,7 +103,7 @@ class YaltaPodslushanoParser:
                     self.posts_cache = posts
                     self.last_update = datetime.now()
                     self.failure_count = 0
-                    logger.info(f"✅ Успешно получено {len(posts)} постов")
+                    logger.info(f"✅ Успешно получено {len(posts)} постов о животных")
                     return posts
             else:
                 logger.warning(f"⚠️ HTTP ошибка: {response.status_code}")
@@ -102,7 +115,7 @@ class YaltaPodslushanoParser:
         return self.posts_cache if self.posts_cache else []
     
     def parse_html_content(self, html_content: str, limit: int) -> List[Dict]:
-        """Парсинг HTML контента с улучшенным извлечением медиа"""
+        """Парсинг HTML и фильтрация постов о животных"""
         try:
             soup = BeautifulSoup(html_content, 'html.parser')
             
@@ -115,22 +128,22 @@ class YaltaPodslushanoParser:
                 logger.warning("❌ Сообщения не найдены в HTML")
                 return []
             
-            posts = []
-            for msg_div in messages[:limit*2]:
+            animal_posts = []
+            for msg_div in messages:
                 post = self.parse_message_div(msg_div)
-                if post:
-                    posts.append(post)
-                    if len(posts) >= limit:
+                if post and self.is_animal_post(post['text']):
+                    animal_posts.append(post)
+                    if len(animal_posts) >= limit:
                         break
             
-            return posts
+            return animal_posts
             
         except Exception as e:
             logger.error(f"❌ Ошибка парсинга HTML: {str(e)}")
             return []
     
     def parse_message_div(self, div) -> Optional[Dict]:
-        """Парсинг отдельного сообщения с улучшенным извлечением медиа"""
+        """Парсинг отдельного сообщения"""
         try:
             # ID поста
             post_id = div.get('data-post', '') or f"msg_{hash(str(div)[:100]) % 10000}"
@@ -154,7 +167,7 @@ class YaltaPodslushanoParser:
             date_elem = div.select_one('.tgme_widget_message_date time')
             date_str = date_elem.get('datetime', 'Недавно') if date_elem else "Недавно"
             
-            # Улучшенное извлечение медиа
+            # Медиа
             media = self.extract_media(div)
             
             return {
@@ -172,51 +185,30 @@ class YaltaPodslushanoParser:
             return None
     
     def extract_media(self, div):
-        """Улучшенное извлечение медиа (фото, видео, документы)"""
-        # 1. Проверяем фото (новый метод)
+        """Извлечение медиа (фото, видео)"""
+        # Фото
         photo_elem = div.select_one('.tgme_widget_message_photo')
         if photo_elem:
-            # Пробуем разные способы извлечения URL фото
-            photo_url = None
             img_elem = photo_elem.select_one('img[src]')
             if img_elem:
-                photo_url = img_elem.get('src')
+                return {'type': 'photo', 'url': img_elem.get('src')}
             
-            if not photo_url:
-                style = photo_elem.get('style', '')
-                match = re.search(r"background-image:url\('([^']+)'\)", style)
-                if match:
-                    photo_url = match.group(1)
-            
-            if photo_url:
-                return {'type': 'photo', 'url': photo_url}
+            style = photo_elem.get('style', '')
+            match = re.search(r"background-image:url\('([^']+)'\)", style)
+            if match:
+                return {'type': 'photo', 'url': match.group(1)}
         
-        # 2. Проверяем видео
+        # Видео
         video_elem = div.select_one('video.tgme_widget_message_video')
         if video_elem:
             video_src = video_elem.get('src')
             if video_src:
                 return {'type': 'video', 'url': video_src}
         
-        # 3. Проверяем документы (гифки и другие вложения)
-        document_elem = div.select_one('a.tgme_widget_message_document')
-        if document_elem:
-            doc_url = document_elem.get('href')
-            if doc_url:
-                return {'type': 'document', 'url': doc_url}
-        
-        # 4. Альтернативный метод для фото (старый)
-        photo_wrap = div.select_one('.tgme_widget_message_photo_wrap[style*="background-image"]')
-        if photo_wrap:
-            style = photo_wrap.get('style', '')
-            match = re.search(r"background-image:url\('([^']+)'\)", style)
-            if match:
-                return {'type': 'photo', 'url': match.group(1)}
-        
         return None
     
-    def get_cached_posts(self, limit: int = 5) -> List[Dict]:
-        """Получение кэшированных постов"""
+    def get_cached_animal_posts(self, limit: int = 5) -> List[Dict]:
+        """Получение кэшированных постов о животных"""
         should_update = (
             not self.last_update or 
             (datetime.now() - self.last_update).seconds > 3600 or
@@ -224,12 +216,12 @@ class YaltaPodslushanoParser:
         )
         
         if should_update:
-            return self.get_channel_posts(limit)
+            return self.get_animal_posts(limit)
         
         return self.posts_cache[:limit]
 
-class YaltaPodslushanoBot:
-    """Бот для канала Ялта Подслушано с улучшенной отправкой медиа"""
+class AnimalPostsBot:
+    """Бот для постов о животных"""
     
     def __init__(self):
         self.token = os.environ.get('TOKEN')
@@ -238,7 +230,7 @@ class YaltaPodslushanoBot:
             exit(1)
         
         self.bot = telebot.TeleBot(self.token)
-        self.parser = YaltaPodslushanoParser()
+        self.parser = AnimalPostsParser()
         self.app = Flask(__name__)
         self.port = int(os.environ.get('PORT', 8080))
         self.webhook_url = os.environ.get('WEBHOOK_URL')
@@ -246,13 +238,14 @@ class YaltaPodslushanoBot:
         self.setup_handlers()
         self.setup_routes()
     
-    def send_post(self, chat_id: int, post: Dict):
-        """Улучшенная отправка поста с медиа"""
+    def send_animal_post(self, chat_id: int, post: Dict):
+        """Отправка поста о животных"""
         try:
             # Формируем текст
             post_text = (
-                f"📢 <b>{self.parser.channel['name']}</b>\n\n"
+                f"🐾 <b>Пост о животных</b> 🐾\n\n"
                 f"{post['text']}\n\n"
+                f"📅 {post['date']}\n"
                 f"🔗 <a href='{post['url']}'>Открыть в канале</a>"
             )
             
@@ -273,10 +266,6 @@ class YaltaPodslushanoBot:
                 media = post['media']
                 try:
                     if media['type'] == 'photo':
-                        # Проверяем URL фото
-                        if not media['url'].startswith('http'):
-                            raise ValueError("Неверный URL фото")
-                            
                         self.bot.send_photo(
                             chat_id,
                             media['url'],
@@ -285,12 +274,7 @@ class YaltaPodslushanoBot:
                             reply_markup=self.get_post_markup(post['url'])
                         )
                         return
-                    
                     elif media['type'] == 'video':
-                        # Проверяем URL видео
-                        if not media['url'].startswith('http'):
-                            raise ValueError("Неверный URL видео")
-                            
                         self.bot.send_video(
                             chat_id,
                             media['url'],
@@ -299,16 +283,10 @@ class YaltaPodslushanoBot:
                             reply_markup=self.get_post_markup(post['url'])
                         )
                         return
-                    
-                    elif media['type'] == 'document':
-                        # Для документов просто отправляем ссылку
-                        post_text += f"\n\n📎 Документ: {media['url']}"
-                        
                 except Exception as media_error:
                     logger.error(f"⚠️ Ошибка отправки медиа: {media_error}")
-                    # Продолжаем с текстовым вариантом
             
-            # Текстовая отправка (если нет медиа или не удалось отправить)
+            # Текстовая отправка
             self.bot.send_message(
                 chat_id,
                 post_text,
@@ -333,8 +311,8 @@ class YaltaPodslushanoBot:
     def get_main_keyboard(self):
         """Главное меню"""
         markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-        markup.add("📢 Последние посты", "🔄 Обновить")
-        markup.add("ℹ️ О канале")
+        markup.add("🐾 Последние посты", "🔄 Обновить")
+        markup.add("ℹ️ О боте")
         return markup
     
     def setup_handlers(self):
@@ -343,9 +321,11 @@ class YaltaPodslushanoBot:
         @self.bot.message_handler(commands=['start', 'help'])
         def start_handler(message):
             welcome_text = (
-                f"👋 <b>Добро пожаловать в бот для канала {self.parser.channel['name']}</b>\n\n"
+                "🐾 <b>Бот постов о животных из Ялта Подслушано</b>\n\n"
+                "Я собираю посты о кошках, собаках и других животных "
+                "из канала Ялта Подслушано.\n\n"
                 "📌 Доступные команды:\n"
-                "/posts - последние посты из канала\n"
+                "/posts - последние посты о животных\n"
                 "/update - обновить данные\n"
                 "/channel - ссылка на канал\n\n"
                 "💡 Вы также можете использовать кнопки меню ниже"
@@ -361,24 +341,24 @@ class YaltaPodslushanoBot:
         @self.bot.message_handler(commands=['posts'])
         def posts_handler(message):
             self.bot.send_chat_action(message.chat.id, 'typing')
-            posts = self.parser.get_cached_posts(5)
+            posts = self.parser.get_cached_animal_posts(5)
             
             if not posts:
                 self.bot.send_message(
                     message.chat.id,
-                    "😕 В данный момент не удалось получить посты. Попробуйте позже.",
+                    "😕 В данный момент нет постов о животных. Попробуйте позже.",
                     reply_markup=self.get_main_keyboard()
                 )
                 return
             
             self.bot.send_message(
                 message.chat.id,
-                f"📢 <b>Последние {len(posts)} постов из {self.parser.channel['name']}</b>",
+                f"🐾 <b>Последние {len(posts)} постов о животных</b>",
                 parse_mode="HTML"
             )
             
             for post in posts:
-                self.send_post(message.chat.id, post)
+                self.send_animal_post(message.chat.id, post)
                 time.sleep(0.3)
         
         @self.bot.message_handler(commands=['update'])
@@ -386,12 +366,12 @@ class YaltaPodslushanoBot:
             self.bot.send_chat_action(message.chat.id, 'typing')
             self.bot.send_message(message.chat.id, "🔄 Обновление данных...")
             
-            posts = self.parser.get_channel_posts(5)
+            posts = self.parser.get_animal_posts(5)
             
             if posts:
                 self.bot.send_message(
                     message.chat.id,
-                    f"✅ Успешно обновлено! Получено {len(posts)} новых постов.\n"
+                    f"✅ Успешно обновлено! Найдено {len(posts)} постов о животных.\n"
                     f"📅 Последнее обновление: {datetime.now().strftime('%H:%M:%S')}",
                     reply_markup=self.get_main_keyboard()
                 )
@@ -399,7 +379,7 @@ class YaltaPodslushanoBot:
             else:
                 self.bot.send_message(
                     message.chat.id,
-                    "⚠️ Не удалось получить новые посты. Возможно, проблема с доступом к каналу.",
+                    "⚠️ Не удалось найти новые посты о животных. Попробуйте позже.",
                     reply_markup=self.get_main_keyboard()
                 )
         
@@ -418,7 +398,7 @@ class YaltaPodslushanoBot:
                 )
             )
         
-        @self.bot.message_handler(func=lambda m: m.text in ["📢 Последние посты", "посты"])
+        @self.bot.message_handler(func=lambda m: m.text in ["🐾 Последние посты", "посты"])
         def posts_button_handler(message):
             posts_handler(message)
         
@@ -426,18 +406,26 @@ class YaltaPodslushanoBot:
         def update_button_handler(message):
             update_handler(message)
         
-        @self.bot.message_handler(func=lambda m: m.text in ["ℹ️ О канале", "о канале"])
+        @self.bot.message_handler(func=lambda m: m.text in ["ℹ️ О боте", "о боте"])
         def about_button_handler(message):
-            channel_handler(message)
+            self.bot.send_message(
+                message.chat.id,
+                "ℹ️ <b>О боте</b>\n\n"
+                "Этот бот собирает посты о животных из канала Ялта Подслушано.\n"
+                "Я умею находить сообщения о кошках, собаках и других животных, "
+                "которые нуждаются в помощи, ищут дом или потерялись.\n\n"
+                "Если у вас есть вопросы или предложения, напишите @ваш_аккаунт",
+                parse_mode="HTML"
+            )
         
         @self.bot.message_handler(func=lambda m: True)
         def default_handler(message):
             self.bot.send_message(
                 message.chat.id,
                 "ℹ️ Используйте команды или кнопки меню:\n\n"
-                "📢 Последние посты - показать новые посты\n"
+                "🐾 Последние посты - показать новые посты о животных\n"
                 "🔄 Обновить - обновить данные\n"
-                "ℹ️ О канале - ссылка на канал",
+                "ℹ️ О боте - информация о боте",
                 reply_markup=self.get_main_keyboard()
             )
     
@@ -456,24 +444,12 @@ class YaltaPodslushanoBot:
         @self.app.route('/')
         def home():
             return jsonify({
-                "status": "YaltaPodslushano Bot",
+                "status": "Animal Posts Bot",
                 "channel": self.parser.channel['url'],
-                "posts_cached": len(self.parser.posts_cache),
+                "animal_posts_cached": len(self.parser.posts_cache),
                 "last_update": self.parser.last_update.isoformat() if self.parser.last_update else None,
-                "version": "2.1"
+                "version": "1.0"
             })
-        
-        @self.app.route('/posts')
-        def posts_api():
-            try:
-                posts = self.parser.get_cached_posts(5)
-                return jsonify({
-                    "status": "success",
-                    "count": len(posts),
-                    "posts": posts[:5]
-                })
-            except Exception as e:
-                return jsonify({"status": "error", "message": str(e)}), 500
 
     def setup_webhook(self) -> bool:
         """Настройка webhook"""
@@ -501,7 +477,7 @@ class YaltaPodslushanoBot:
 
     def run(self):
         """Запуск бота"""
-        logger.info("🚀 Запуск бота для Ялта Подслушано...")
+        logger.info("🚀 Запуск бота для постов о животных...")
         
         try:
             import cloudscraper
@@ -510,8 +486,8 @@ class YaltaPodslushanoBot:
             logger.warning("⚠️ CloudScraper не установлен. Парсинг может не работать.")
         
         try:
-            posts = self.parser.get_cached_posts()
-            logger.info(f"✅ Предзагружено {len(posts)} постов")
+            posts = self.parser.get_cached_animal_posts()
+            logger.info(f"✅ Предзагружено {len(posts)} постов о животных")
         except Exception as e:
             logger.error(f"❌ Ошибка предзагрузки: {str(e)}")
         
@@ -536,7 +512,7 @@ pip install telebot flask requests beautifulsoup4 cloudscraper lxml
 """)
     
     try:
-        bot = YaltaPodslushanoBot()
+        bot = AnimalPostsBot()
         bot.run()
     except KeyboardInterrupt:
         logger.info("👋 Бот остановлен пользователем")
