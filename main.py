@@ -23,7 +23,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 class AnimalNewsParser:
-    """Парсер новостей о животных из нескольких каналов Ялты"""
+    """Парсер новостей о животных из нескольких каналов"""
     
     def __init__(self):
         self.channels = [
@@ -32,50 +32,11 @@ class AnimalNewsParser:
                 'url': 'https://t.me/yalta_podslushano',
                 'name': 'Ялта Подслушано'
             },
-            {
-                'username': 'vet_yalta',
-                'url': 'https://t.me/vet_yalta',
-                'name': 'ВетЯлта'
-            },
+            
             {
                 'username': 'yaltaya',
                 'url': 'https://t.me/yaltaya',
                 'name': 'Ялтая'
-            },
-            {
-                'username': 'yalta_ru',
-                'url': 'https://t.me/yalta_ru',
-                'name': 'Ялта | Новости'
-            },
-            {
-                'username': 'yaltahelper',
-                'url': 'https://t.me/yaltahelper',
-                'name': 'Ялта Хелпер'
-            },
-            {
-                'username': 'yalta_afisha',
-                'url': 'https://t.me/yalta_afisha',
-                'name': 'Афиша Ялты'
-            },
-            {
-                'username': 'yalta_today',
-                'url': 'https://t.me/yalta_today',
-                'name': 'Ялта Сегодня'
-            },
-            {
-                'username': 'yalta_zoo',
-                'url': 'https://t.me/yalta_zoo',
-                'name': 'Ялтинский Зоопарк'
-            },
-            {
-                'username': 'yalta_animals',
-                'url': 'https://t.me/yalta_animals',
-                'name': 'Животные Ялты'
-            },
-            {
-                'username': 'yalta_help_animals',
-                'url': 'https://t.me/yalta_help_animals',
-                'name': 'Помощь животным Ялты'
             }
         ]
         
@@ -84,28 +45,18 @@ class AnimalNewsParser:
             'кошк', 'кот', 'котён', 'котен', 'котэ', 'котейк', 'кис', 'кис-кис',
             'соба', 'пёс', 'пес', 'щен', 'собак', 'псин', 'хвост', 'лап',
             'животн', 'питом', 'звер', 'зверюшк', 'зверёк', 'питомец',
-            'хомяк', 'крыс', 'морск', 'свинк', 'шиншилл', 'кролик', 'крольч',
-            'птиц', 'попуга', 'канарейк', 'вороб', 'голуб', 'синичк', 'ворон',
-            'черепах', 'ящериц', 'зме', 'хамелеон', 'игуан', 'тритон', 'лягушк',
             
             # Действия
             'пристр', 'потерял', 'нашел', 'найдён', 'найден', 'пропал', 'пропада',
             'приют', 'передерж', 'ветеринар', 'корм', 'стерилиз', 'кастрац',
             'лечен', 'болезн', 'помощ', 'помоги', 'ищет', 'ищем', 'найти',
-            'подобрал', 'подобран', 'отдам', 'в добрые руки', 'передержка',
-            'потеряшк', 'потеряшка', 'потеряхи', 'потеряхи',
             
             # Характеристики
             'лап', 'хвост', 'ус', 'шерст', 'породист', 'дворняж', 'дворняг',
             'пушист', 'рыж', 'черн', 'бел', 'сер', 'полоса', 'пятнист',
-            'окрас', 'метис', 'чистопород', 'порода', 'кличк', 'имя',
             
             # Звуки
-            'мяу', 'гав', 'мур', 'тяф', 'рыч', 'чирик', 'кар', 'квак',
-            
-            # Организации
-            'приют', 'ветклиник', 'ветеринар', 'зоомагазин', 'зоозащит',
-            'зооволонтер', 'зоодобровол', 'зоопомощь'
+            'мяу', 'гав', 'мур', 'тяф', 'рыч'
         ]
         
         self.posts_cache = []
@@ -131,13 +82,6 @@ class AnimalNewsParser:
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
         ]
-    
-    def is_recent_post(self, timestamp: float) -> bool:
-        """Проверяет, был ли пост опубликован в последние 48 часов"""
-        if not timestamp:
-            return False
-        post_time = datetime.fromtimestamp(timestamp)
-        return (datetime.now() - post_time) <= timedelta(hours=48)
     
     def is_animal_post(self, text: str) -> bool:
         """Проверяет, относится ли пост к животным"""
@@ -165,8 +109,8 @@ class AnimalNewsParser:
             cleaned = cleaned.replace(old, new)
         return cleaned.strip()
     
-    def get_animal_posts(self, limit_per_channel: int = 5) -> List[Dict]:
-        """Получает посты о животных со всех каналов за последние 48 часов"""
+    def get_animal_posts(self, limit_per_channel: int = 3) -> List[Dict]:
+        """Получает посты о животных со всех каналов"""
         self.last_attempt = datetime.now()
         all_posts = []
         
@@ -190,13 +134,8 @@ class AnimalNewsParser:
                         limit_per_channel
                     )
                     if channel_posts:
-                        # Фильтрация по времени (последние 48 часов)
-                        recent_posts = [p for p in channel_posts if self.is_recent_post(p.get('timestamp', 0))]
-                        if recent_posts:
-                            all_posts.extend(recent_posts)
-                            logger.info(f"✅ Найдено {len(recent_posts)} постов в {channel['name']} (за 48ч)")
-                        else:
-                            logger.info(f"ℹ️ В {channel['name']} нет свежих постов за 48ч")
+                        all_posts.extend(channel_posts)
+                        logger.info(f"✅ Найдено {len(channel_posts)} постов в {channel['name']}")
                 else:
                     logger.warning(f"⚠️ HTTP ошибка {response.status_code} для {channel['name']}")
                 
@@ -214,9 +153,9 @@ class AnimalNewsParser:
             self.posts_cache = all_posts
             self.last_update = datetime.now()
             self.failure_count = 0
-            logger.info(f"✅ Всего найдено {len(all_posts)} постов о животных за 48ч")
+            logger.info(f"✅ Всего найдено {len(all_posts)} постов о животных")
         else:
-            logger.warning("⚠️ Не найдено ни одного поста о животных за 48ч")
+            logger.warning("⚠️ Не найдено ни одного поста о животных")
         
         return all_posts
     
@@ -284,10 +223,6 @@ class AnimalNewsParser:
                     except:
                         date_str = date_elem.get_text(strip=True)
             
-            # Пропускаем старые посты (>48 часов)
-            if not self.is_recent_post(timestamp):
-                return None
-            
             # Медиа
             media = self.extract_media(div)
             
@@ -339,8 +274,8 @@ class AnimalNewsParser:
         
         return None
     
-    def get_cached_animal_posts(self, limit: int = 15) -> List[Dict]:
-        """Получение кэшированных постов о животных за последние 48 часов"""
+    def get_cached_animal_posts(self, limit: int = 10) -> List[Dict]:
+        """Получение кэшированных постов о животных"""
         should_update = (
             not self.last_update or 
             (datetime.now() - self.last_update).seconds > 3600 or
@@ -350,12 +285,10 @@ class AnimalNewsParser:
         if should_update:
             return self.get_animal_posts(limit // len(self.channels))
         
-        # Фильтрация кэша по времени
-        recent_posts = [p for p in self.posts_cache if self.is_recent_post(p.get('timestamp', 0))]
-        return recent_posts[:limit]
+        return self.posts_cache[:limit]
 
 class AnimalNewsBot:
-    """Бот для новостей о животных Ялты"""
+    """Бот для новостей о животных"""
     
     def __init__(self):
         self.token = os.environ.get('TOKEN')
@@ -459,19 +392,12 @@ class AnimalNewsBot:
         def start_handler(message):
             welcome_text = (
                 "🐕🐈 <b>Бот новостей о животных Ялты</b> 🐦🐇\n\n"
-                "Я собираю новости о животных из каналов Ялты за последние 48 часов:\n"
+                "Я собираю новости о животных из нескольких каналов:\n"
                 "- Ялта Подслушано\n"
                 "- ВетЯлта\n"
-                "- Ялтая\n"
-                "- Ялта | Новости\n"
-                "- Ялта Хелпер\n"
-                "- Афиша Ялты\n"
-                "- Ялта Сегодня\n"
-                "- Ялтинский Зоопарк\n"
-                "- Животные Ялты\n"
-                "- Помощь животным Ялты\n\n"
+                "- Ялтая\n\n"
                 "📌 <b>Доступные команды:</b>\n"
-                "/news - последние новости о животных (48ч)\n"
+                "/news - последние новости о животных\n"
                 "/update - обновить данные\n"
                 "/channels - список всех каналов\n\n"
                 "💡 Вы также можете использовать кнопки меню ниже"
@@ -487,19 +413,19 @@ class AnimalNewsBot:
         @self.bot.message_handler(commands=['news', 'posts'])
         def news_handler(message):
             self.bot.send_chat_action(message.chat.id, 'typing')
-            posts = self.parser.get_cached_animal_posts(15)
+            posts = self.parser.get_cached_animal_posts(10)
             
             if not posts:
                 self.bot.send_message(
                     message.chat.id,
-                    "😕 В последние 48 часов не найдено новостей о животных. Попробуйте позже.",
+                    "😕 В данный момент нет новостей о животных. Попробуйте позже.",
                     reply_markup=self.get_main_keyboard()
                 )
                 return
             
             self.bot.send_message(
                 message.chat.id,
-                f"🐾 <b>Последние {len(posts)} новостей о животных (за 48ч)</b>",
+                f"🐾 <b>Последние {len(posts)} новостей о животных</b>",
                 parse_mode="HTML"
             )
             
@@ -512,12 +438,12 @@ class AnimalNewsBot:
             self.bot.send_chat_action(message.chat.id, 'typing')
             self.bot.send_message(message.chat.id, "🔄 Обновление данных...")
             
-            posts = self.parser.get_animal_posts(5)  # 5 постов с каждого канала
+            posts = self.parser.get_animal_posts(3)  # 3 поста с каждого канала
             
             if posts:
                 self.bot.send_message(
                     message.chat.id,
-                    f"✅ Успешно обновлено! Найдено {len(posts)} новых постов за 48ч.\n"
+                    f"✅ Успешно обновлено! Найдено {len(posts)} новых постов.\n"
                     f"📅 Последнее обновление: {datetime.now().strftime('%H:%M:%S')}",
                     reply_markup=self.get_main_keyboard()
                 )
@@ -525,17 +451,17 @@ class AnimalNewsBot:
             else:
                 self.bot.send_message(
                     message.chat.id,
-                    "⚠️ Не удалось найти новые посты о животных за последние 48 часов. Попробуйте позже.",
+                    "⚠️ Не удалось найти новые посты о животных. Попробуйте позже.",
                     reply_markup=self.get_main_keyboard()
                 )
         
         @self.bot.message_handler(commands=['channels'])
         def channels_handler(message):
-            channels_text = "📢 <b>Каналы Ялты, которые я отслеживаю:</b>\n\n"
+            channels_text = "📢 <b>Каналы, которые я отслеживаю:</b>\n\n"
             for channel in self.parser.channels:
                 channels_text += f"🔹 <a href='{channel['url']}'>{channel['name']}</a>\n"
             
-            channels_text += "\nℹ️ Я ищу только посты о животных в этих каналах за последние 48 часов."
+            channels_text += "\nℹ️ Я ищу только посты о животных в этих каналах."
             
             self.bot.send_message(
                 message.chat.id,
@@ -561,13 +487,12 @@ class AnimalNewsBot:
             self.bot.send_message(
                 message.chat.id,
                 "ℹ️ <b>О боте</b>\n\n"
-                "Этот бот собирает новости о животных из каналов Ялты за последние 48 часов.\n\n"
+                "Этот бот собирает новости о животных из нескольких каналов Ялты.\n\n"
                 "📌 <b>Что я умею:</b>\n"
                 "- Находить посты о кошках, собаках и других животных\n"
                 "- Показывать актуальные объявления о пропажах/находках\n"
                 "- Отображать информацию о помощи животным\n\n"
                 "🔄 <b>Частота обновления:</b> 1 раз в час\n"
-                "⏳ <b>Период:</b> последние 48 часов\n"
                 "🔍 <b>Фильтрация:</b> только посты о животных\n\n"
                 "По вопросам и предложениям: @ваш_аккаунт",
                 parse_mode="HTML",
@@ -579,7 +504,7 @@ class AnimalNewsBot:
             self.bot.send_message(
                 message.chat.id,
                 "ℹ️ Используйте команды или кнопки меню:\n\n"
-                "🐾 Последние новости - показать новые посты о животных (48ч)\n"
+                "🐾 Последние новости - показать новые посты о животных\n"
                 "🔄 Обновить - обновить данные\n"
                 "📢 Все каналы - список отслеживаемых каналов\n"
                 "ℹ️ О боте - информация о боте",
@@ -601,12 +526,11 @@ class AnimalNewsBot:
         @self.app.route('/')
         def home():
             return jsonify({
-                "status": "Animal News Bot (Yalta)",
+                "status": "Animal News Bot",
                 "channels": [c['name'] for c in self.parser.channels],
                 "animal_posts_cached": len(self.parser.posts_cache),
                 "last_update": self.parser.last_update.isoformat() if self.parser.last_update else None,
-                "time_period": "48 hours",
-                "version": "2.0"
+                "version": "1.1"
             })
 
     def setup_webhook(self) -> bool:
@@ -635,7 +559,7 @@ class AnimalNewsBot:
 
     def run(self):
         """Запуск бота"""
-        logger.info("🚀 Запуск бота новостей о животных Ялты...")
+        logger.info("🚀 Запуск бота новостей о животных...")
         
         try:
             import cloudscraper
@@ -645,7 +569,7 @@ class AnimalNewsBot:
         
         try:
             posts = self.parser.get_cached_animal_posts()
-            logger.info(f"✅ Предзагружено {len(posts)} постов о животных за 48ч")
+            logger.info(f"✅ Предзагружено {len(posts)} постов о животных")
         except Exception as e:
             logger.error(f"❌ Ошибка предзагрузки: {str(e)}")
         
@@ -666,7 +590,7 @@ if __name__ == "__main__":
 🔧 Для работы бота необходимо установить зависимости:
 pip install telebot flask requests beautifulsoup4 cloudscraper lxml
 
-🔄 Запуск бота новостей о животных Ялты...
+🔄 Запуск бота...
 """)
     
     try:
@@ -680,4 +604,4 @@ pip install telebot flask requests beautifulsoup4 cloudscraper lxml
         print("1. Не установлен TOKEN в переменных окружения")
         print("2. Проблемы с сетью или доступом к Telegram API")
         print("\n🔄 Попробуйте перезапустить...")
-        time.sleep(5)
+        time.sleep(5) 
