@@ -13,10 +13,14 @@ beautifulsoup4==4.12.2    # Парсинг HTML
 lxml==5.1.0               # Ускоритель парсинга (быстрее html.parser)
 cloudscraper==1.2.71      # Обход Cloudflare
 
-# Selenium (для сложных случаев)
-selenium==4.15.2          # Автоматизация браузера
+# Selenium (ИСПРАВЛЕННЫЕ ВЕРСИИ)
+selenium==4.16.0          # Обновленная версия
+undetected-chromedriver==3.5.4  # Обновленная версия (исправляет distutils)
 webdriver-manager==4.0.1  # Автоматическое управление драйверами
-undetected-chromedriver==3.5.0 # Стелс-режим Chrome
+
+# Совместимость с Python 3.12+
+setuptools>=65.0.0        # Замена для distutils
+wheel>=0.38.0             # Для сборки пакетов
 
 # Telethon (альтернативный парсинг)
 Telethon==1.32.1          # Клиент Telegram API
