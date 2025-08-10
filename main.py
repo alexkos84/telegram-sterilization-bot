@@ -16,7 +16,7 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import threading
 
-# Selenium imports
+# Selenium imports (ИСПРАВЛЕННАЯ ВЕРСИЯ)
 try:
     import undetected_chromedriver as uc
     from selenium import webdriver
@@ -25,12 +25,38 @@ try:
     from selenium.webdriver.support import expected_conditions as EC
     from selenium.webdriver.chrome.options import Options
     from selenium.common.exceptions import TimeoutException, NoSuchElementException, WebDriverException
+    
+    # Дополнительная проверка на совместимость
+    from selenium.webdriver.chrome.service import Service
+    
     SELENIUM_AVAILABLE = True
     print("✅ Selenium и undetected-chromedriver доступны")
+    
 except ImportError as e:
+    # Если импорт не удался, создаем заглушки
+    class MockWebDriver:
+        class Chrome:
+            def __init__(self, *args, **kwargs):
+                raise Exception("Selenium не установлен")
+    
+    webdriver = MockWebDriver()
+    
     SELENIUM_AVAILABLE = False
     print(f"⚠️ Selenium не установлен: {e}")
-    print("Установите: pip install selenium undetected-chromedriver")
+    print("Установите: pip install --upgrade selenium undetected-chromedriver setuptools")
+
+except Exception as e:
+    # Дополнительная обработка других ошибок
+    class MockWebDriver:
+        class Chrome:
+            def __init__(self, *args, **kwargs):
+                raise Exception(f"Ошибка Selenium: {e}")
+    
+    webdriver = MockWebDriver()
+    
+    SELENIUM_AVAILABLE = False
+    print(f"⚠️ Ошибка настройки Selenium: {e}")
+    print("Попробуйте: pip install --upgrade selenium undetected-chromedriver setuptools")
 
 # Настройка логирования
 logging.basicConfig(
@@ -1470,3 +1496,4 @@ if __name__ == "__main__":
         print("4. Недостаточно памяти для Selenium")
         print("\n🔄 Попробуйте перезапустить через 30 секунд...")
         time.sleep(30)
+
