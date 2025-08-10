@@ -12,61 +12,17 @@ import re
 from typing import Dict, List, Optional
 import random
 from urllib.parse import quote_plus
-import asyncio
-from concurrent.futures import ThreadPoolExecutor
-import threading
+import cloudscraper
 
-# Selenium imports (ИСПРАВЛЕННАЯ ВЕРСИЯ)
-try:
-    import undetected_chromedriver as uc
-    from selenium import webdriver
-    from selenium.webdriver.common.by import By
-    from selenium.webdriver.support.ui import WebDriverWait
-    from selenium.webdriver.support import expected_conditions as EC
-    from selenium.webdriver.chrome.options import Options
-    from selenium.common.exceptions import TimeoutException, NoSuchElementException, WebDriverException
-    
-    # Дополнительная проверка на совместимость
-    from selenium.webdriver.chrome.service import Service
-    
-    SELENIUM_AVAILABLE = True
-    print("✅ Selenium и undetected-chromedriver доступны")
-    
-except ImportError as e:
-    # Если импорт не удался, создаем заглушки
-    class MockWebDriver:
-        class Chrome:
-            def __init__(self, *args, **kwargs):
-                raise Exception("Selenium не установлен")
-    
-    webdriver = MockWebDriver()
-    
-    SELENIUM_AVAILABLE = False
-    print(f"⚠️ Selenium не установлен: {e}")
-    print("Установите: pip install --upgrade selenium undetected-chromedriver setuptools")
-
-except Exception as e:
-    # Дополнительная обработка других ошибок
-    class MockWebDriver:
-        class Chrome:
-            def __init__(self, *args, **kwargs):
-                raise Exception(f"Ошибка Selenium: {e}")
-    
-    webdriver = MockWebDriver()
-    
-    SELENIUM_AVAILABLE = False
-    print(f"⚠️ Ошибка настройки Selenium: {e}")
-    print("Попробуйте: pip install --upgrade selenium undetected-chromedriver setuptools")
-
-# Настройка логирования
+# 🔧 Настройка логирования
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
-class AdvancedSeleniumTelegramParser:
-    """Продвинутый парсер Telegram с Selenium и множественными стратегиями обхода"""
+class RobustTelegramParser:
+    """Устойчивый парсер с несколькими методами обхода блокировок"""
     
     def __init__(self):
         self.groups = [
@@ -76,568 +32,402 @@ class AdvancedSeleniumTelegramParser:
                 'type': 'cats'
             },
             {
-                'username': 'yalta_aninmals', 
+                'username': 'yalta_aninmals',
                 'url': 'https://t.me/yalta_aninmals',
                 'type': 'dogs'
             }
         ]
-        
         self.posts_cache = []
         self.last_update = None
         self.last_attempt = None
         self.failure_count = 0
-        self.driver = None
-        self.driver_lock = threading.Lock()
         
-        # Настройки Selenium
-        self.selenium_enabled = SELENIUM_AVAILABLE
-        self.max_retries = 3
-        self.page_load_timeout = 30
-        self.scroll_pause_time = 2
-        self.max_scroll_attempts = 5
+        # Создаем CloudScraper сессию для обхода Cloudflare
+        try:
+            self.scraper = cloudscraper.create_scraper(
+                browser={
+                    'browser': 'chrome',
+                    'platform': 'windows',
+                    'mobile': False
+                }
+            )
+        except:
+            self.scraper = requests.Session()
+            logger.warning("⚠️ CloudScraper недоступен, используем обычный requests")
         
-        # Резервные User-Agents
+        # Ротация User-Agents
         self.user_agents = [
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
             'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0'
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0',
         ]
         
-        # Прокси (если нужны)
-        self.proxy_list = []  # Добавьте свои прокси сюда
-        
-        # Статистика
-        self.stats = {
-            'selenium_success': 0,
-            'selenium_failures': 0,
-            'fallback_used': 0,
-            'total_posts_parsed': 0
-        }
-
+        # Прокси-сервисы (если нужны)
+        self.proxy_services = [
+            # Можно добавить публичные прокси
+        ]
+    
     def should_attempt_parsing(self) -> bool:
-        """Определяет, стоит ли пытаться парсить"""
+        """Определяет, стоит ли пытаться парсить (защита от спама)"""
         if not self.last_attempt:
             return True
         
-        # Прогрессивный кулдаун: чем больше неудач, тем больше пауза
-        cooldown_minutes = min(self.failure_count * 3, 45)  # максимум 45 минут
+        # Если много неудач, увеличиваем интервал
+        cooldown_minutes = min(self.failure_count * 5, 60)  # максимум час
         time_passed = (datetime.now() - self.last_attempt).total_seconds() / 60
         
         return time_passed > cooldown_minutes
-
-    def setup_selenium_driver(self, headless: bool = True, use_proxy: bool = False) -> webdriver.Chrome:
-        """Настройка продвинутого Selenium драйвера"""
-        if not self.selenium_enabled:
-            raise Exception("Selenium не доступен")
-        
-        try:
-            # Опции Chrome
-            options = uc.ChromeOptions()
-            
-            # Основные настройки
-            if headless:
-                options.add_argument('--headless=new')  # Новый headless режим
-            
-            # Обход детекции автоматизации
-            options.add_argument('--no-sandbox')
-            options.add_argument('--disable-dev-shm-usage')
-            options.add_argument('--disable-blink-features=AutomationControlled')
-            options.add_experimental_option("excludeSwitches", ["enable-automation"])
-            options.add_experimental_option('useAutomationExtension', False)
-            
-            # Производительность
-            options.add_argument('--disable-gpu')
-            options.add_argument('--disable-extensions')
-            options.add_argument('--disable-plugins')
-            options.add_argument('--disable-images')  # Не загружаем изображения для скорости
-            options.add_argument('--disable-javascript')  # Отключаем JS если не нужен
-            
-            # Память и процессы
-            options.add_argument('--memory-pressure-off')
-            options.add_argument('--max_old_space_size=4096')
-            options.add_argument('--single-process')
-            
-            # User Agent
-            options.add_argument(f'--user-agent={random.choice(self.user_agents)}')
-            
-            # Прокси (если указан)
-            if use_proxy and self.proxy_list:
-                proxy = random.choice(self.proxy_list)
-                options.add_argument(f'--proxy-server={proxy}')
-                logger.info(f"🌐 Используется прокси: {proxy}")
-            
-            # Размер окна
-            options.add_argument('--window-size=1920,1080')
-            
-            # Дополнительные настройки
-            prefs = {
-                "profile.managed_default_content_settings.images": 2,  # Блокируем изображения
-                "profile.default_content_setting_values.notifications": 2,  # Блокируем уведомления
-                "profile.managed_default_content_settings.media_stream": 2,
-            }
-            options.add_experimental_option("prefs", prefs)
-            
-            # Создаем драйвер
-            driver = uc.Chrome(options=options)
-            
-            # Дополнительные настройки после создания
-            driver.set_page_load_timeout(self.page_load_timeout)
-            driver.implicitly_wait(10)
-            
-            # Скрываем признаки автоматизации
-            driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-            
-            logger.info("✅ Selenium драйвер настроен успешно")
-            return driver
-            
-        except Exception as e:
-            logger.error(f"❌ Ошибка настройки Selenium: {e}")
-            raise
-
-    def safe_driver_operation(self, operation, *args, **kwargs):
-        """Безопасное выполнение операций с драйвером"""
-        with self.driver_lock:
-            try:
-                return operation(*args, **kwargs)
-            except WebDriverException as e:
-                logger.error(f"❌ Ошибка драйвера: {e}")
-                self.cleanup_driver()
-                raise
-            except Exception as e:
-                logger.error(f"❌ Неожиданная ошибка: {e}")
-                raise
-
-    def cleanup_driver(self):
-        """Очистка ресурсов драйвера"""
-        if self.driver:
-            try:
-                self.driver.quit()
-                logger.info("🧹 Selenium драйвер закрыт")
-            except:
-                pass
-            finally:
-                self.driver = None
-
-    def smart_scroll_and_load(self, driver, target_messages: int = 20) -> bool:
-        """Умная прокрутка страницы для загрузки сообщений"""
-        try:
-            logger.info(f"🔄 Начинаем прокрутку для загрузки ~{target_messages} сообщений")
-            
-            # Ждем базовой загрузки
-            WebDriverWait(driver, 15).until(
-                EC.presence_of_element_located((By.CLASS_NAME, "tgme_channel_info"))
-            )
-            
-            # Начальная пауза
-            time.sleep(3)
-            
-            prev_height = driver.execute_script("return document.body.scrollHeight")
-            messages_found = 0
-            scroll_attempts = 0
-            no_new_content_count = 0
-            
-            while scroll_attempts < self.max_scroll_attempts and messages_found < target_messages:
-                # Прокручиваем вниз
-                driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-                time.sleep(self.scroll_pause_time)
-                
-                # Проверяем количество загруженных сообщений
-                messages = driver.find_elements(By.CSS_SELECTOR, ".tgme_widget_message")
-                messages_found = len(messages)
-                
-                # Проверяем, изменилась ли высота страницы
-                new_height = driver.execute_script("return document.body.scrollHeight")
-                
-                if new_height == prev_height:
-                    no_new_content_count += 1
-                    if no_new_content_count >= 3:  # Если 3 раза подряд ничего не загрузилось
-                        logger.info(f"⏹️ Прекращаем прокрутку - контент не загружается")
-                        break
-                else:
-                    no_new_content_count = 0
-                    prev_height = new_height
-                
-                scroll_attempts += 1
-                logger.info(f"📜 Прокрутка {scroll_attempts}/{self.max_scroll_attempts}, найдено сообщений: {messages_found}")
-                
-                # Дополнительная пауза если мало сообщений
-                if messages_found < 5:
-                    time.sleep(2)
-            
-            logger.info(f"✅ Прокрутка завершена: {messages_found} сообщений за {scroll_attempts} попыток")
-            return messages_found > 0
-            
-        except TimeoutException:
-            logger.warning("⚠️ Таймаут при ожидании загрузки страницы")
-            return False
-        except Exception as e:
-            logger.error(f"❌ Ошибка при прокрутке: {e}")
-            return False
-
-    def extract_message_data(self, driver, message_element, group: Dict) -> Optional[Dict]:
-        """Извлечение данных из элемента сообщения"""
-        try:
-            # ID сообщения
-            post_id = message_element.get_attribute('data-post')
-            if not post_id:
-                # Пытаемся найти в ссылке
-                try:
-                    link_elem = message_element.find_element(By.CSS_SELECTOR, ".tgme_widget_message_date")
-                    href = link_elem.get_attribute('href')
-                    if href:
-                        post_id = href.split('/')[-1]
-                except:
-                    post_id = f"msg_{hash(str(message_element.get_attribute('outerHTML')[:100])) % 10000}"
-            
-            # Извлекаем текст сообщения
-            text = self.extract_text_selenium(message_element)
-            if not text or len(text.strip()) < 20:
-                return None
-            
-            # Дата
-            date_str = self.extract_date_selenium(message_element)
-            
-            # Фото URL
-            photo_url = self.extract_photo_selenium(message_element)
-            
-            # Проверяем валидность поста
-            if not self.is_valid_post_content(text, group['type']):
-                return None
-            
-            # Извлекаем метаданные
-            title = self.extract_smart_title(text, group['type'])
-            description = self.extract_smart_description(text)
-            contact = self.extract_contact(text)
-            
-            return {
-                'id': str(post_id).split('/')[-1],
-                'text': text,
-                'date': date_str,
-                'url': f"{group['url']}/{str(post_id).split('/')[-1]}",
-                'title': title,
-                'description': description,
-                'contact': contact,
-                'photo_url': photo_url,
-                'has_photo': bool(photo_url),
-                'type': group['type'],
-                'source': 'selenium',
-                'extracted_at': datetime.now().isoformat()
-            }
-            
-        except Exception as e:
-            logger.error(f"❌ Ошибка извлечения данных сообщения: {e}")
-            return None
-
-    def extract_text_selenium(self, message_element) -> str:
-        """Извлечение текста через Selenium"""
-        try:
-            # Пробуем разные селекторы
-            text_selectors = [
-                ".tgme_widget_message_text",
-                ".js-message_text",
-                ".message_text",
-                ".tgme_widget_message_content"
-            ]
-            
-            for selector in text_selectors:
-                try:
-                    text_elem = message_element.find_element(By.CSS_SELECTOR, selector)
-                    text = text_elem.get_attribute('textContent') or text_elem.text
-                    if text and len(text.strip()) > 10:
-                        return text.strip()
-                except NoSuchElementException:
-                    continue
-            
-            # Если ничего не найдено, берем весь текст элемента
-            full_text = message_element.get_attribute('textContent') or message_element.text
-            
-            # Очищаем от служебных элементов
-            cleaned_text = re.sub(r'(Views|Просмотров|Subscribe|Подписаться).*$', '', full_text, flags=re.IGNORECASE)
-            cleaned_text = re.sub(r'\s+', ' ', cleaned_text).strip()
-            
-            return cleaned_text if len(cleaned_text) > 20 else full_text
-            
-        except Exception as e:
-            logger.error(f"❌ Ошибка извлечения текста: {e}")
-            return ""
-
-    def extract_date_selenium(self, message_element) -> str:
-        """Извлечение даты через Selenium"""
-        try:
-            # Пробуем найти элемент времени
-            time_selectors = [
-                "time[datetime]",
-                ".tgme_widget_message_date time",
-                ".tgme_widget_message_date",
-                "time"
-            ]
-            
-            for selector in time_selectors:
-                try:
-                    time_elem = message_element.find_element(By.CSS_SELECTOR, selector)
-                    
-                    # Сначала пробуем datetime атрибут
-                    datetime_attr = time_elem.get_attribute('datetime')
-                    if datetime_attr:
-                        try:
-                            # Парсим ISO datetime
-                            dt = datetime.fromisoformat(datetime_attr.replace('Z', '+00:00'))
-                            return dt.strftime('%d.%m.%Y %H:%M')
-                        except:
-                            pass
-                    
-                    # Потом пробуем текст
-                    date_text = time_elem.get_attribute('textContent') or time_elem.text
-                    if date_text:
-                        return date_text.strip()
-                        
-                except NoSuchElementException:
-                    continue
-            
-            return "Недавно"
-            
-        except Exception as e:
-            logger.error(f"❌ Ошибка извлечения даты: {e}")
-            return "Недавно"
-
-    def extract_photo_selenium(self, message_element) -> Optional[str]:
-        """Извлечение URL фото через Selenium"""
-        try:
-            photo_selectors = [
-                ".tgme_widget_message_photo_wrap",
-                ".tgme_widget_message_photo", 
-                ".tgme_widget_message_document_thumb",
-                "img[src*='cdn']"
-            ]
-            
-            for selector in photo_selectors:
-                try:
-                    photo_elem = message_element.find_element(By.CSS_SELECTOR, selector)
-                    
-                    # Из style background-image
-                    style = photo_elem.get_attribute('style')
-                    if style and 'background-image' in style:
-                        match = re.search(r"background-image:\s*url\(['\"]?([^'\")]+)['\"]?\)", style)
-                        if match:
-                            return match.group(1)
-                    
-                    # Из src атрибута
-                    src = photo_elem.get_attribute('src')
-                    if src and src.startswith('http'):
-                        return src
-                    
-                    # Из data-src
-                    data_src = photo_elem.get_attribute('data-src')
-                    if data_src and data_src.startswith('http'):
-                        return data_src
-                        
-                except NoSuchElementException:
-                    continue
-            
-            return None
-            
-        except Exception as e:
-            logger.error(f"❌ Ошибка извлечения фото: {e}")
-            return None
-
-    def parse_group_selenium(self, group: Dict, limit: int = 10) -> List[Dict]:
-        """Парсинг группы через Selenium"""
-        posts = []
-        driver = None
-        
-        try:
-            logger.info(f"🤖 Selenium: парсинг {group['username']}")
-            
-            # Настраиваем драйвер
-            driver = self.setup_selenium_driver(headless=True)
-            
-            # Переходим на страницу
-            url = f'https://t.me/s/{group["username"]}'
-            logger.info(f"🌐 Загружаем: {url}")
-            
-            driver.get(url)
-            
-            # Проверяем на блокировки
-            page_source = driver.page_source.lower()
-            if any(block_sign in page_source for block_sign in ['cloudflare', 'access denied', 'forbidden']):
-                logger.warning(f"⚠️ Обнаружена блокировка для {group['username']}")
-                return []
-            
-            # Умная прокрутка для загрузки сообщений
-            if not self.smart_scroll_and_load(driver, target_messages=limit * 2):
-                logger.warning(f"⚠️ Не удалось загрузить сообщения для {group['username']}")
-                return []
-            
-            # Ищем все сообщения
-            message_selectors = [
-                ".tgme_widget_message",
-                ".tgme_widget_message_wrap .tgme_widget_message",
-                "[data-post]"
-            ]
-            
-            messages = []
-            for selector in message_selectors:
-                try:
-                    found_messages = driver.find_elements(By.CSS_SELECTOR, selector)
-                    if found_messages:
-                        messages = found_messages
-                        logger.info(f"✅ Найдено {len(found_messages)} сообщений через селектор: {selector}")
-                        break
-                except Exception as e:
-                    logger.debug(f"Селектор {selector} не сработал: {e}")
-                    continue
-            
-            if not messages:
-                logger.warning(f"❌ Сообщения не найдены для {group['username']}")
-                return []
-            
-            # Парсим каждое сообщение
-            logger.info(f"🔄 Обрабатываем {len(messages)} сообщений...")
-            processed = 0
-            
-            for message_elem in messages:
-                if len(posts) >= limit:
-                    break
-                
-                try:
-                    post_data = self.extract_message_data(driver, message_elem, group)
-                    if post_data:
-                        posts.append(post_data)
-                        logger.debug(f"✅ Пост #{len(posts)}: {post_data['title'][:50]}...")
-                    
-                    processed += 1
-                    if processed % 5 == 0:
-                        logger.info(f"📊 Обработано {processed}/{len(messages)}, извлечено {len(posts)} валидных постов")
-                        
-                except Exception as e:
-                    logger.error(f"❌ Ошибка обработки сообщения: {e}")
-                    continue
-            
-            logger.info(f"✅ Selenium: получено {len(posts)} постов из {group['username']}")
-            self.stats['total_posts_parsed'] += len(posts)
-            
-            return posts
-            
-        except Exception as e:
-            logger.error(f"❌ Ошибка парсинга {group['username']}: {e}")
-            return []
-            
-        finally:
-            if driver:
-                self.cleanup_driver()
-
-    def get_group_posts_selenium(self, group_type: str = 'all', limit: int = 3) -> List[Dict]:
-        """Главный метод получения постов через Selenium"""
-        if not self.selenium_enabled:
-            logger.error("❌ Selenium не доступен")
-            return self.get_smart_mock_posts(group_type, limit)
-        
+    
+    def get_advanced_headers(self):
+        """Продвинутые заголовки для обхода детекции"""
+        return {
+            'User-Agent': random.choice(self.user_agents),
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+            'Accept-Language': 'ru-RU,ru;q=0.9,en;q=0.8',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'DNT': '1',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'none',
+            'Sec-Fetch-User': '?1',
+            'Cache-Control': 'max-age=0',
+            'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120"',
+            'sec-ch-ua-mobile': '?0',
+            'sec-ch-ua-platform': '"Windows"'
+        }
+    
+    def get_group_posts(self, group_type: str = 'all', limit: int = 3) -> List[Dict]:
+        """Главный метод получения постов с множественными стратегиями"""
         self.last_attempt = datetime.now()
         
         if not self.should_attempt_parsing():
-            logger.info(f"⏳ Парсинг пропущен (кулдаун: {self.failure_count * 3} мин)")
-            return self.get_cached_or_mock_posts(group_type, limit)
+            logger.info(f"⏳ Парсинг пропущен (кулдаун: {self.failure_count * 5} мин)")
+            return self.get_smart_mock_posts(group_type, limit)
         
-        all_posts = []
-        success_count = 0
+        posts = []
+        success = False
         
+        # Стратегия 1: CloudScraper с продвинутыми заголовками
+        posts = self.try_cloudscraper_method(group_type, limit)
+        if posts:
+            success = True
+        
+        # Стратегия 2: Множественные попытки с задержками
+        if not success:
+            posts = self.try_multiple_attempts(group_type, limit)
+            if posts:
+                success = True
+        
+        # Стратегия 3: Альтернативные URL форматы
+        if not success:
+            posts = self.try_alternative_urls(group_type, limit)
+            if posts:
+                success = True
+        
+        if success:
+            self.posts_cache = posts
+            self.last_update = datetime.now()
+            self.failure_count = max(0, self.failure_count - 1)  # Уменьшаем счетчик неудач
+            logger.info(f"✅ Успешно получено {len(posts)} постов")
+        else:
+            self.failure_count += 1
+            logger.warning(f"❌ Парсинг неудачен (попытка #{self.failure_count})")
+            posts = self.get_smart_mock_posts(group_type, limit)
+        
+        return posts
+    
+    def try_cloudscraper_method(self, group_type: str, limit: int) -> List[Dict]:
+        """Попытка через CloudScraper"""
         try:
-            # Парсим каждую группу
+            posts = []
+            
             for group in self.groups:
                 if group_type != 'all' and group['type'] != group_type:
                     continue
                 
-                try:
-                    # Пауза между группами
-                    if success_count > 0:
-                        time.sleep(random.uniform(3, 7))
-                    
-                    group_posts = self.parse_group_selenium(group, limit)
-                    
+                url = f'https://t.me/s/{group["username"]}'
+                logger.info(f"🌐 CloudScraper: {url}")
+                
+                # Настраиваем scraper
+                self.scraper.headers.update(self.get_advanced_headers())
+                
+                # Делаем запрос с таймаутом
+                response = self.scraper.get(url, timeout=20)
+                
+                if response.status_code == 200:
+                    group_posts = self.parse_html_content(response.text, group, limit)
                     if group_posts:
-                        all_posts.extend(group_posts)
-                        success_count += 1
-                        self.stats['selenium_success'] += 1
-                        logger.info(f"✅ {group['username']}: {len(group_posts)} постов")
-                    else:
-                        self.stats['selenium_failures'] += 1
-                        logger.warning(f"⚠️ {group['username']}: постов не получено")
-                        
-                except Exception as e:
-                    logger.error(f"❌ Ошибка парсинга группы {group['username']}: {e}")
-                    self.stats['selenium_failures'] += 1
-                    continue
+                        posts.extend(group_posts)
+                        logger.info(f"✅ CloudScraper: получено {len(group_posts)} постов")
+                else:
+                    logger.warning(f"⚠️ CloudScraper: HTTP {response.status_code}")
+                
+                # Пауза между группами
+                time.sleep(random.uniform(2, 5))
             
-            # Обработка результатов
-            if all_posts:
-                # Убираем дубликаты и сортируем по дате
-                unique_posts = self.deduplicate_posts(all_posts)
-                sorted_posts = sorted(unique_posts, key=lambda x: x.get('date', ''), reverse=True)
-                
-                # Обновляем кэш
-                self.posts_cache = sorted_posts[:limit * 2]  # Храним чуть больше
-                self.last_update = datetime.now()
-                self.failure_count = max(0, self.failure_count - 1)
-                
-                logger.info(f"✅ Selenium парсинг успешен: {len(sorted_posts)} уникальных постов")
-                return sorted_posts[:limit]
-            else:
-                self.failure_count += 1
-                logger.warning(f"❌ Selenium парсинг неудачен (попытка #{self.failure_count})")
-                return self.get_smart_mock_posts(group_type, limit)
-                
+            return posts
+            
         except Exception as e:
-            self.failure_count += 1
-            logger.error(f"❌ Критическая ошибка Selenium парсинга: {e}")
-            return self.get_smart_mock_posts(group_type, limit)
-
-    def deduplicate_posts(self, posts: List[Dict]) -> List[Dict]:
-        """Удаление дубликатов постов"""
-        seen_texts = set()
-        unique_posts = []
-        
-        for post in posts:
-            # Создаем "отпечаток" поста
-            text_fingerprint = re.sub(r'\W+', '', post.get('text', '')[:100].lower())
+            logger.error(f"❌ CloudScraper ошибка: {e}")
+            return []
+    
+    def try_multiple_attempts(self, group_type: str, limit: int) -> List[Dict]:
+        """Множественные попытки с разными настройками"""
+        try:
+            posts = []
             
-            if text_fingerprint not in seen_texts and len(text_fingerprint) > 10:
-                seen_texts.add(text_fingerprint)
-                unique_posts.append(post)
+            for group in self.groups:
+                if group_type != 'all' and group['type'] != group_type:
+                    continue
+                
+                # 3 попытки для каждой группы
+                for attempt in range(3):
+                    try:
+                        session = requests.Session()
+                        session.headers.update(self.get_advanced_headers())
+                        
+                        # Разные URL форматы
+                        urls = [
+                            f'https://t.me/s/{group["username"]}',
+                            f'https://telegram.me/s/{group["username"]}'
+                        ]
+                        
+                        for url in urls:
+                            logger.info(f"🔄 Попытка {attempt + 1}: {url}")
+                            
+                            response = session.get(
+                                url, 
+                                timeout=15,
+                                allow_redirects=True
+                            )
+                            
+                            if response.status_code == 200:
+                                group_posts = self.parse_html_content(response.text, group, limit)
+                                if group_posts:
+                                    posts.extend(group_posts)
+                                    logger.info(f"✅ Попытка {attempt + 1}: получено {len(group_posts)} постов")
+                                    break
+                            
+                            # Пауза между попытками
+                            time.sleep(random.uniform(1, 3))
+                        
+                        if posts:
+                            break  # Если получили посты, переходим к следующей группе
+                            
+                    except requests.RequestException as e:
+                        logger.warning(f"⚠️ Попытка {attempt + 1} неудачна: {e}")
+                        time.sleep(random.uniform(2, 4))
+                        continue
+                
+                # Большая пауза между группами
+                time.sleep(random.uniform(3, 7))
+            
+            return posts
+            
+        except Exception as e:
+            logger.error(f"❌ Множественные попытки: {e}")
+            return []
+    
+    def try_alternative_urls(self, group_type: str, limit: int) -> List[Dict]:
+        """Альтернативные методы доступа"""
+        # Здесь можно добавить:
+        # - RSS фиды (если доступны)
+        # - API через прокси
+        # - Кэшированные версии
+        logger.info("🔄 Пробуем альтернативные методы...")
+        return []
+    
+    def parse_html_content(self, html: str, group: Dict, limit: int) -> List[Dict]:
+        """Улучшенный парсинг HTML"""
+        try:
+            soup = BeautifulSoup(html, 'html.parser')
+            
+            # Проверяем, что страница загружена нормально
+            if "Cloudflare" in html or "checking your browser" in html.lower():
+                logger.warning("⚠️ Cloudflare блокировка обнаружена")
+                return []
+            
+            if len(html) < 1000:
+                logger.warning("⚠️ Слишком короткий HTML ответ")
+                return []
+            
+            # Ищем сообщения
+            message_selectors = [
+                'div.tgme_widget_message',
+                'div[data-post]',
+                'div.tgme_widget_message_wrap',
+                '.tgme_widget_message'
+            ]
+            
+            messages = []
+            for selector in message_selectors:
+                found = soup.select(selector)
+                if found and len(found) > 0:
+                    messages = found
+                    logger.info(f"✅ Найдено {len(found)} сообщений: {selector}")
+                    break
+            
+            if not messages:
+                logger.warning("❌ Сообщения не найдены в HTML")
+                # Сохраняем HTML для отладки (первые 500 символов)
+                logger.debug(f"HTML preview: {html[:500]}")
+                return []
+            
+            posts = []
+            processed = 0
+            
+            for msg_div in messages:
+                if processed >= limit * 2:  # Ограничиваем обработку
+                    break
+                
+                post_data = self.parse_message_div(msg_div, group)
+                if post_data:
+                    # Дополнительная фильтрация
+                    if (self.is_valid_post(post_data, group['type']) and
+                        len(post_data.get('text', '')) > 30):
+                        posts.append(post_data)
+                        if len(posts) >= limit:
+                            break
+                
+                processed += 1
+            
+            logger.info(f"✅ Обработано {processed} сообщений, получено {len(posts)} постов")
+            return posts
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка парсинга HTML: {e}")
+            return []
+    
+    def parse_message_div(self, div, group) -> Optional[Dict]:
+        """Парсинг отдельного сообщения"""
+        try:
+            # ID поста
+            post_id = (div.get('data-post', '') or 
+                      div.get('data-message-id', '') or
+                      f"msg_{hash(str(div)[:100]) % 10000}")
+            
+            if '/' in str(post_id):
+                post_id = str(post_id).split('/')[-1]
+            
+            # Текст сообщения
+            text = self.extract_text(div)
+            if not text or len(text) < 20:
+                return None
+            
+            # Дата
+            date_str = self.extract_date(div)
+            
+            # Фото
+            photo_url = self.extract_photo(div)
+            
+            # Формируем результат
+            return {
+                'id': post_id,
+                'text': text,
+                'date': date_str,
+                'url': f"{group['url']}/{post_id}",
+                'title': self.extract_smart_title(text, group['type']),
+                'description': self.extract_smart_description(text),
+                'contact': self.extract_contact(text),
+                'photo_url': photo_url,
+                'has_photo': bool(photo_url),
+                'type': group['type'],
+                'source': 'parsed'
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка парсинга сообщения: {e}")
+            return None
+    
+    def extract_text(self, div) -> str:
+        """Извлечение текста из div"""
+        # Пробуем разные селекторы для текста
+        text_selectors = [
+            '.tgme_widget_message_text',
+            'div.tgme_widget_message_text',
+            '.message_text',
+            '.text'
+        ]
         
-        return unique_posts
-
-    # Методы из оригинального кода (адаптированные)
-    def is_valid_post_content(self, text: str, animal_type: str) -> bool:
-        """Проверка валидности контента поста"""
-        text_lower = text.lower()
+        for selector in text_selectors:
+            text_elem = div.select_one(selector)
+            if text_elem:
+                text = text_elem.get_text(separator=' ', strip=True)
+                if text:
+                    return text
         
-        # Ключевые слова для животных
-        if animal_type == 'cats':
-            animal_keywords = ['кот', 'кошк', 'котен', 'мурз', 'мяу', 'питомец']
-        else:
-            animal_keywords = ['собак', 'щен', 'пес', 'лай', 'питомец']
+        # Если не нашли, берем весь текст из div
+        full_text = div.get_text(separator=' ', strip=True)
         
-        # Ключевые слова для пристройства
-        action_keywords = ['ищет', 'дом', 'пристрой', 'отда', 'найден', 'семь', 'хозя']
+        # Очищаем от служебных элементов
+        cleaned = re.sub(r'(Views|Просмотров|Subscribe|Подписаться).*$', '', full_text, flags=re.IGNORECASE)
         
-        # Исключающие слова
-        exclude_keywords = ['продам', 'куплю', 'услуг', 'реклам', 'спам']
+        return cleaned if len(cleaned) > 20 else full_text
+    
+    def extract_date(self, div) -> str:
+        """Извлечение даты"""
+        date_selectors = ['time[datetime]', '.tgme_widget_message_date time', 'time']
         
-        has_animal = any(keyword in text_lower for keyword in animal_keywords)
-        has_action = any(keyword in text_lower for keyword in action_keywords)
-        has_exclude = any(keyword in text_lower for keyword in exclude_keywords)
+        for selector in date_selectors:
+            date_elem = div.select_one(selector)
+            if date_elem:
+                datetime_attr = date_elem.get('datetime')
+                if datetime_attr:
+                    try:
+                        # Парсим ISO datetime
+                        dt = datetime.fromisoformat(datetime_attr.replace('Z', '+00:00'))
+                        return dt.strftime('%d.%m.%Y %H:%M')
+                    except:
+                        pass
+                
+                # Пробуем текст элемента
+                date_text = date_elem.get_text(strip=True)
+                if date_text:
+                    return date_text
         
-        return has_animal and has_action and not has_exclude and len(text) > 30
-
+        return "Недавно"
+    
+    def extract_photo(self, div) -> Optional[str]:
+        """Извлечение URL фото"""
+        # Селекторы для фото
+        photo_selectors = [
+            '.tgme_widget_message_photo_wrap[style*="background-image"]',
+            'a.tgme_widget_message_photo_wrap[style*="background-image"]',
+            'img[src]',
+            '[data-src]'
+        ]
+        
+        for selector in photo_selectors:
+            photo_elem = div.select_one(selector)
+            if photo_elem:
+                # Из style background-image
+                style = photo_elem.get('style', '')
+                if 'background-image' in style:
+                    match = re.search(r"background-image:url\('([^']+)'\)", style)
+                    if match:
+                        return match.group(1)
+                
+                # Из src или data-src
+                for attr in ['src', 'data-src']:
+                    url = photo_elem.get(attr)
+                    if url and url.startswith('http'):
+                        return url
+        
+        return None
+    
     def extract_smart_title(self, text: str, animal_type: str) -> str:
         """Умное извлечение заголовка"""
         lines = [line.strip() for line in text.split('\n') if line.strip()]
         
+        # Ищем строки с ключевыми словами
         keywords = ['ищет', 'дом', 'пристрой', 'отда', 'найден', 'потерял']
         
-        for line in lines[:3]:
+        for line in lines[:5]:
             if len(line) > 15 and any(keyword in line.lower() for keyword in keywords):
+                # Очищаем от лишнего
                 title = re.sub(r'[^\w\s\-\.,!?а-яёА-ЯЁ]', ' ', line)
                 title = re.sub(r'\s+', ' ', title).strip()
                 
@@ -646,19 +436,21 @@ class AdvancedSeleniumTelegramParser:
                 
                 return title
         
-        # Дефолтные заголовки
+        # Дефолтный заголовок
         defaults = {
             'cats': ['Кошка ищет дом', 'Котенок в добрые руки', 'Пристройство кошки'],
             'dogs': ['Собака ищет дом', 'Щенок в добрые руки', 'Пристройство собаки']
         }
         
         return random.choice(defaults.get(animal_type, defaults['cats']))
-
+    
     def extract_smart_description(self, text: str) -> str:
         """Умное извлечение описания"""
+        # Удаляем контакты и ссылки для чистого описания
         clean_text = re.sub(r'(@\w+|https?://\S+|\+?[78][\d\s\-\(\)]{10,})', '', text)
         clean_text = re.sub(r'\s+', ' ', clean_text).strip()
         
+        # Ограничиваем длину, сохраняя целые предложения
         if len(clean_text) > 150:
             sentences = clean_text.split('.')
             result = ""
@@ -670,7 +462,7 @@ class AdvancedSeleniumTelegramParser:
             return result.strip() or clean_text[:150] + "..."
         
         return clean_text
-
+    
     def extract_contact(self, text: str) -> str:
         """Извлечение контактов"""
         contacts = []
@@ -685,6 +477,7 @@ class AdvancedSeleniumTelegramParser:
         for pattern in phone_patterns:
             phones = re.findall(pattern, text)
             if phones:
+                # Очищаем номер от лишних символов
                 clean_phone = re.sub(r'[\s\-\(\)]', '', phones[0])
                 contacts.append(f"+7{clean_phone[-10:]}" if not clean_phone.startswith(('+7', '+8')) else clean_phone)
                 break
@@ -695,91 +488,100 @@ class AdvancedSeleniumTelegramParser:
             contacts.append(usernames[0])
         
         return ' • '.join(contacts[:2]) if contacts else "См. в группе"
-
-    def get_cached_or_mock_posts(self, group_type: str, limit: int) -> List[Dict]:
-        """Получение кэшированных или мок-постов"""
-        # Фильтруем кэш по типу
-        cached = [p for p in self.posts_cache 
-                 if group_type == 'all' or p['type'] == group_type]
+    
+    def is_valid_post(self, post: Dict, animal_type: str) -> bool:
+        """Проверка валидности поста"""
+        text = post.get('text', '').lower()
         
-        if cached and len(cached) >= limit:
-            return cached[:limit]
+        # Ключевые слова для животных
+        if animal_type == 'cats':
+            animal_keywords = ['кот', 'кошк', 'котен', 'мурз', 'мяу', 'питомец']
         else:
-            self.stats['fallback_used'] += 1
-            return self.get_smart_mock_posts(group_type, limit)
-
+            animal_keywords = ['собак', 'щен', 'пес', 'лай', 'питомец']
+        
+        # Ключевые слова для пристройства
+        action_keywords = ['ищет', 'дом', 'пристрой', 'отда', 'найден', 'семь', 'хозя']
+        
+        # Исключающие слова
+        exclude_keywords = ['продам', 'куплю', 'услуг', 'реклам', 'спам']
+        
+        has_animal = any(keyword in text for keyword in animal_keywords)
+        has_action = any(keyword in text for keyword in action_keywords)
+        has_exclude = any(keyword in text for keyword in exclude_keywords)
+        
+        return has_animal and has_action and not has_exclude and len(text) > 30
+    
     def get_smart_mock_posts(self, group_type: str, limit: int) -> List[Dict]:
         """Умные моки с реалистичными данными"""
         if group_type == 'cats':
-            mock_data = {
-                'names': ['Мурка', 'Барсик', 'Снежок', 'Рыжик', 'Тишка', 'Пушок', 'Дымка', 'Мася'],
-                'ages': ['2 месяца', '3-4 месяца', '6 месяцев', '1 год', '2 года', '3 года'],
-                'colors': ['рыжий', 'серый', 'черный', 'белый', 'трехцветная', 'полосатый', 'дымчатый'],
-                'traits': ['игривый', 'ласковый', 'спокойный', 'умный', 'дружелюбный', 'активный'],
-                'health': ['привит', 'здоров', 'кастрирован', 'стерилизована', 'обработан от паразитов']
-            }
+            mock_data = [
+                {
+                    'names': ['Мурка', 'Барсик', 'Снежок', 'Рыжик', 'Тишка', 'Пушок'],
+                    'ages': ['2 месяца', '3-4 месяца', '6 месяцев', '1 год', '2 года'],
+                    'colors': ['рыжий', 'серый', 'черный', 'белый', 'трехцветная', 'полосатый'],
+                    'traits': ['игривый', 'ласковый', 'спокойный', 'умный', 'дружелюбный'],
+                    'health': ['привит', 'здоров', 'кастрирован', 'стерилизована', 'обработан от паразитов']
+                }
+            ]
         else:
-            mock_data = {
-                'names': ['Бобик', 'Шарик', 'Дружок', 'Лайка', 'Джек', 'Белка', 'Рекс', 'Найда'],
-                'ages': ['3 месяца', '4-5 месяцев', '6 месяцев', '1 год', '2 года', '3 года'],
-                'colors': ['черный', 'коричневый', 'белый', 'рыжий', 'пятнистый', 'серый'],
-                'traits': ['активный', 'дружелюбный', 'умный', 'послушный', 'энергичный', 'спокойный'],
-                'health': ['привит', 'здоров', 'кастрирован', 'чипирован', 'обработан от паразитов']
-            }
+            mock_data = [
+                {
+                    'names': ['Бобик', 'Шарик', 'Дружок', 'Лайка', 'Джек', 'Белка'],
+                    'ages': ['3 месяца', '4-5 месяцев', '6 месяцев', '1 год', '2 года'],
+                    'colors': ['черный', 'коричневый', 'белый', 'рыжий', 'пятнистый'],
+                    'traits': ['активный', 'дружелюбный', 'умный', 'послушный', 'энергичный'],
+                    'health': ['привит', 'здоров', 'кастрирован', 'чипирован', 'обработан от паразитов']
+                }
+            ]
         
         posts = []
-        animal_emoji = '🐱' if group_type == 'cats' else '🐶'
-        animal_name = 'котик' if group_type == 'cats' else 'щенок'
+        data = mock_data[0]
         
         for i in range(limit):
-            name = random.choice(mock_data['names'])
-            age = random.choice(mock_data['ages'])
-            color = random.choice(mock_data['colors'])
-            trait = random.choice(mock_data['traits'])
-            health = random.choice(mock_data['health'])
+            name = random.choice(data['names'])
+            age = random.choice(data['ages'])
+            color = random.choice(data['colors'])
+            trait = random.choice(data['traits'])
+            health = random.choice(data['health'])
+            
+            animal_emoji = '🐱' if group_type == 'cats' else '🐶'
+            animal_name = 'кот' if group_type == 'cats' else 'щенок'
             
             # Генерируем реалистичный текст
-            descriptions = [
-                f"{animal_name.capitalize()} {name}, возраст {age}, {color} окрас. {trait.capitalize()}, {health}. К лотку приучен, с другими животными ладит. Ищет заботливую семью!",
-                f"Ищет дом {animal_name} {name}. Возраст: {age}. Окрас: {color}. Характер: {trait}. Здоровье: {health}. Очень нуждается в любящих хозяевах!",
-                f"{name} - {color} {animal_name}, {age}. {trait.capitalize()} и {health}. Приучен к порядку. Мечтает о теплом доме и заботливых руках!"
-            ]
-            
-            description = random.choice(descriptions)
+            description = f"{animal_name.capitalize()} {name}, возраст {age}, {color} окрас. {trait.capitalize()}, {health}. К лотку приучен, с другими животными ладит. Ищет заботливую семью!"
             
             posts.append({
-                'id': f'mock_selenium_{i + 2000}',
+                'id': f'mock_{i + 1000}',
                 'title': f'{animal_emoji} {name} ищет дом',
                 'description': description,
                 'text': description,
                 'date': self.generate_recent_date(),
-                'url': f'https://t.me/lapki_ruchki_yalta/{i + 2000}',
+                'url': f'https://t.me/lapki_ruchki_yalta/{i + 1000}',
                 'contact': self.generate_realistic_contact(),
-                'photo_url': f'https://picsum.photos/400/300?random={i + 200}',
+                'photo_url': f'https://picsum.photos/400/300?random={i + 100}',
                 'has_photo': True,
                 'type': group_type,
-                'source': 'mock_selenium',
-                'extracted_at': datetime.now().isoformat()
+                'source': 'mock'
             })
         
         return posts
-
+    
     def generate_recent_date(self) -> str:
         """Генерация недавней даты"""
-        days_ago = random.randint(0, 7)
+        days_ago = random.randint(0, 5)
         hours_ago = random.randint(0, 23)
         recent_date = datetime.now() - timedelta(days=days_ago, hours=hours_ago)
         return recent_date.strftime('%d.%m.%Y %H:%M')
-
+    
     def generate_realistic_contact(self) -> str:
         """Генерация реалистичных контактов"""
-        phone_endings = ['45-67', '78-90', '12-34', '56-78', '90-12', '23-45', '67-89', '34-56']
-        usernames = ['volunteer', 'helper', 'animals_yal', 'pet_help', 'rescue', 'yalta_pets']
+        phone_endings = ['45-67', '78-90', '12-34', '56-78', '90-12', '23-45']
+        usernames = ['volunteer', 'helper', 'animals_yal', 'pet_help', 'rescue']
         
         contacts = []
         
-        # Телефон (всегда)
-        phone = f"+7 978 {random.randint(100, 999)}-{random.choice(phone_endings)}"
+        # Телефон
+        phone = f"+7 978 {random.choice(phone_endings)}"
         contacts.append(phone)
         
         # Username (иногда)
@@ -788,23 +590,37 @@ class AdvancedSeleniumTelegramParser:
             contacts.append(username)
         
         return ' • '.join(contacts)
-
-    def get_statistics(self) -> Dict:
-        """Получение статистики работы парсера"""
-        return {
-            **self.stats,
-            'selenium_enabled': self.selenium_enabled,
-            'failure_count': self.failure_count,
-            'cached_posts': len(self.posts_cache),
-            'last_update': self.last_update.isoformat() if self.last_update else None,
-            'can_parse': self.should_attempt_parsing(),
-            'groups_count': len(self.groups)
-        }
-
-
-class EnhancedCatBotWithSelenium:
-    """Улучшенный бот с Selenium парсингом"""
     
+    def get_cached_posts(self, group_type: str = 'all') -> List[Dict]:
+        """Получение кэшированных постов с умным обновлением"""
+        # Обновляем каждые 30 минут, но только если есть шанс на успех
+        should_update = (
+            not self.last_update or 
+            (datetime.now() - self.last_update).seconds > 1800
+        )
+        
+        if should_update and self.should_attempt_parsing():
+            logger.info("🔄 Время обновления постов...")
+            try:
+                fresh_posts = self.get_group_posts(group_type, 3)
+                if fresh_posts:
+                    return fresh_posts
+            except Exception as e:
+                logger.error(f"❌ Ошибка обновления: {e}")
+        
+        # Возвращаем кэш или моки
+        cached = [p for p in self.posts_cache 
+                 if group_type == 'all' or p['type'] == group_type]
+        
+        if cached:
+            return cached
+        else:
+            return self.get_smart_mock_posts(group_type, 3)
+
+# Остальная часть кода бота остается без изменений...
+# Просто меняем RobustTelegramParser вместо AdvancedGroupParser
+
+class CatBotWithPhotos:
     def __init__(self):
         self.token = os.environ.get('TOKEN')
         if not self.token:
@@ -812,7 +628,7 @@ class EnhancedCatBotWithSelenium:
             exit(1)
         
         self.bot = telebot.TeleBot(self.token)
-        self.parser = AdvancedSeleniumTelegramParser()
+        self.parser = RobustTelegramParser()  # Используем устойчивый парсер
         self.app = Flask(__name__)
         self.port = int(os.environ.get('PORT', 8080))
         self.webhook_url = os.environ.get('WEBHOOK_URL')
@@ -820,22 +636,19 @@ class EnhancedCatBotWithSelenium:
         
         self.setup_handlers()
         self.setup_routes()
-
+    
     def send_post(self, chat_id: int, post: Dict):
         """Отправляет один пост с фото или текстом"""
         try:
             emoji = '🐱' if post['type'] == 'cats' else '🐶'
             
-            # Индикатор источника данных с более подробной информацией
-            if post.get('source') == 'selenium':
-                source_tag = ' 🤖'
-                status = "✅ Selenium парсинг"
-            elif post.get('source') == 'mock_selenium':
-                source_tag = ' 🎭'
-                status = "⚠️ Демо (Selenium недоступен)"
+            # Индикатор источника данных
+            if post.get('source') == 'parsed':
+                source_tag = ' 📡'  # Реальные данные
+                status = "✅ Актуальное"
             else:
-                source_tag = ' 📋'
-                status = "ℹ️ Пример объявления"
+                source_tag = ' 🎭'  # Моки
+                status = "⚠️ Пример"
             
             post_text = (
                 f"{emoji} <b>{post['title']}</b>{source_tag}\n\n"
@@ -846,7 +659,6 @@ class EnhancedCatBotWithSelenium:
                 f"<i>{status}</i>"
             )
             
-            # Ограничиваем длину сообщения
             if len(post_text) > 1024:
                 post_text = post_text[:1000] + "..."
             
@@ -881,25 +693,9 @@ class EnhancedCatBotWithSelenium:
             logger.error(f"❌ Ошибка отправки поста: {e}")
 
     def send_group_posts(self, chat_id: int, animal_type: str = 'cats'):
-        """Отправляет все посты с подробной статистикой парсера"""
+        """Отправляет все посты с подробной статистикой"""
         try:
-            # Отправляем сообщение о начале загрузки
-            loading_msg = self.bot.send_message(
-                chat_id,
-                "🔄 <b>Загружаем объявления...</b>\n\n"
-                "⏳ Парсим Telegram-группы с помощью Selenium\n"
-                "🤖 Это может занять 30-60 секунд",
-                parse_mode="HTML"
-            )
-            
-            # Получаем посты
-            posts = self.parser.get_group_posts_selenium(animal_type, 5)
-            
-            # Удаляем сообщение о загрузке
-            try:
-                self.bot.delete_message(chat_id, loading_msg.message_id)
-            except:
-                pass
+            posts = self.parser.get_cached_posts(animal_type)
             
             if not posts:
                 self.bot.send_message(
@@ -909,75 +705,58 @@ class EnhancedCatBotWithSelenium:
                 )
                 return
             
-            # Получаем статистику парсера
-            stats = self.parser.get_statistics()
-            
             group_name = "Лапки-ручки Ялта" if animal_type == 'cats' else "Ялта Животные"
             group_url = self.parser.groups[0]['url'] if animal_type == 'cats' else self.parser.groups[1]['url']
             
             # Статистика по источникам
-            selenium_count = sum(1 for p in posts if p.get('source') == 'selenium')
-            mock_count = len(posts) - selenium_count
+            parsed_count = sum(1 for p in posts if p.get('source') == 'parsed')
+            mock_count = len(posts) - parsed_count
             
-            # Определяем статус парсинга
-            if selenium_count > 0:
-                status_text = f"🤖 <b>Selenium парсинг успешен</b>: {selenium_count} из {len(posts)}"
-                status_emoji = "✅"
-            elif not self.parser.selenium_enabled:
-                status_text = "⚠️ <b>Selenium не установлен</b>\n📋 Показаны демо-объявления"
-                status_emoji = "🔧"
+            # Статус парсинга
+            if parsed_count > 0:
+                status_text = f"✅ <b>Актуальные данные</b>: {parsed_count} из {len(posts)}"
+                status_emoji = "📡"
             elif self.parser.failure_count > 0:
-                status_text = f"⚠️ <b>Парсинг временно недоступен</b> (попыток: {self.parser.failure_count})\n🎭 Показаны примеры объявлений"
-                status_emoji = "🔄"
+                status_text = f"⚠️ <b>Парсинг временно недоступен</b> (попыток: {self.parser.failure_count})\n📋 Показаны примеры объявлений"
+                status_emoji = "🎭"
             else:
                 status_text = "📋 <b>Примеры объявлений</b>"
-                status_emoji = "📝"
+                status_emoji = "🎭"
             
-            # Информация о следующей попытке
-            next_attempt_info = ""
+            # Информация о кулдауне
+            cooldown_info = ""
             if self.parser.failure_count > 0:
-                cooldown_minutes = min(self.parser.failure_count * 3, 45)
+                cooldown_minutes = min(self.parser.failure_count * 5, 60)
                 next_attempt = ""
                 if self.parser.last_attempt:
                     time_passed = (datetime.now() - self.parser.last_attempt).total_seconds() / 60
                     remaining = max(0, cooldown_minutes - time_passed)
                     if remaining > 0:
-                        next_attempt = f"\n⏰ Следующая попытка через: {int(remaining)} мин"
+                        next_attempt = f"\n⏳ Следующая попытка через: {int(remaining)} мин"
                 
-                next_attempt_info = f"\n🔄 Автообновление: каждые {cooldown_minutes} мин{next_attempt}"
-            
-            # Технические детали для отладки
-            tech_info = ""
-            if selenium_count > 0:
-                tech_info = f"\n\n📊 <b>Технические детали:</b>"
-                tech_info += f"\n• Успешных запросов: {stats['selenium_success']}"
-                tech_info += f"\n• Неудачных запросов: {stats['selenium_failures']}"
-                tech_info += f"\n• Всего постов извлечено: {stats['total_posts_parsed']}"
+                cooldown_info = f"\n🔄 Автообновление: каждые {cooldown_minutes} мин{next_attempt}"
             
             header_text = (
                 f"{status_emoji} <b>{'КОШКИ' if animal_type == 'cats' else 'СОБАКИ'} ИЩУТ ДОМ</b>\n\n"
                 f"📢 Группа: <a href='{group_url}'>{group_name}</a>\n\n"
-                f"{status_text}{next_attempt_info}{tech_info}"
+                f"{status_text}{cooldown_info}"
             )
             
             self.bot.send_message(chat_id, header_text, parse_mode="HTML")
             
-            # Отправляем посты с паузами
+            # Отправляем посты
             for i, post in enumerate(posts):
                 self.send_post(chat_id, post)
-                if i < len(posts) - 1:  # Пауза между постами, кроме последнего
-                    time.sleep(1)
+                time.sleep(0.5)  # Пауза между постами
             
-            # Футер с инструкциями и технической информацией
+            # Футер с инструкциями
             footer_text = (
                 "💡 <b>Как помочь животным:</b>\n\n"
                 f"🏠 <b>Взять {'кошку' if animal_type == 'cats' else 'собаку'}:</b>\n"
                 "Свяжитесь по контактам из объявления\n\n"
                 f"📢 <b>Актуальные объявления:</b>\n<a href='{group_url}'>Перейти в группу</a>\n\n"
                 "🤝 <b>Стать волонтером:</b>\nНапишите в группу или координаторам\n\n"
-                "🔄 <b>Команды бота:</b>\n"
-                "/update - принудительное обновление\n"
-                "/selenium_status - техническая диагностика"
+                "🔄 <b>Обновить данные:</b> /update"
             )
             
             self.bot.send_message(chat_id, footer_text, parse_mode="HTML")
@@ -1005,21 +784,34 @@ class EnhancedCatBotWithSelenium:
         markup.add("📝 Подать объявление")
         markup.add("🔙 Назад")
         return markup
+    
+    def get_sterilization_keyboard(self):
+        """Клавиатура стерилизации"""
+        markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+        markup.add("💰 Платная стерилизация", "🆓 Бесплатная стерилизация")
+        markup.add("🔙 Назад")
+        return markup
+
+    def load_html_file(self, filename: str) -> str:
+        """Загружает HTML файл из папки assets"""
+        try:
+            with open(f'assets/{filename}', 'r', encoding='utf-8') as f:
+                return f.read()
+        except Exception as e:
+            logger.error(f"❌ Ошибка загрузки HTML: {e}")
+            return f"⚠️ Информация временно недоступна ({filename})"
 
     def setup_handlers(self):
-        """Обработчики команд и сообщений с дополнительными Selenium командами"""
+        """Обработчики команд и сообщений"""
         
         @self.bot.message_handler(commands=['start'])
         def start_handler(message):
             self.stats["users"].add(message.from_user.id)
             self.stats["messages"] += 1
             
-            selenium_status = "✅ активен" if self.parser.selenium_enabled else "❌ не установлен"
-            
-            welcome_text = f"""👋 <b>Добро пожаловать!</b>
+            welcome_text = """👋 <b>Добро пожаловать!</b>
 
 🐾 Помощник по уличным животным Ялты
-🤖 Selenium парсинг: {selenium_status}
 
 Выберите раздел:
 🏥 <b>Стерилизация</b> - информация о программах
@@ -1027,7 +819,7 @@ class EnhancedCatBotWithSelenium:
 📞 <b>Контакты</b> - связь с волонтерами
 ℹ️ <b>О проекте</b> - наша деятельность
 
-<i>💡 Бот использует Selenium для парсинга Telegram-групп</i>"""
+<i>💡 Бот автоматически обновляет объявления из Telegram-групп</i>"""
             
             self.bot.send_message(
                 message.chat.id, 
@@ -1036,66 +828,90 @@ class EnhancedCatBotWithSelenium:
                 reply_markup=self.get_main_keyboard()
             )
         
-        @self.bot.message_handler(commands=['selenium_status'])
-        def selenium_status_handler(message):
-            """Подробная диагностика Selenium парсера"""
+        @self.bot.message_handler(commands=['update'])
+        def update_handler(message):
+            """Принудительное обновление постов"""
+            self.parser.posts_cache = []
+            self.parser.last_update = None
+            self.parser.failure_count = max(0, self.parser.failure_count - 1)  # Сброс части неудач
+            
+            self.bot.send_message(message.chat.id, "🔄 Принудительное обновление постов...")
+            
             try:
-                stats = self.parser.get_statistics()
+                posts = self.parser.get_group_posts('all', 5)
+                parsed_count = sum(1 for p in posts if p.get('source') == 'parsed')
+                mock_count = len(posts) - parsed_count
                 
-                status_lines = ["🤖 <b>SELENIUM ДИАГНОСТИКА</b>\n"]
+                status_text = f"✅ <b>Результат обновления:</b>\n\n"
                 
-                # Основной статус
-                if self.parser.selenium_enabled:
-                    status_lines.append("✅ <b>Selenium:</b> Установлен и готов")
-                    
-                    # Статистика работы
-                    status_lines.append(f"📊 <b>Статистика:</b>")
-                    status_lines.append(f"• Успешных парсингов: {stats['selenium_success']}")
-                    status_lines.append(f"• Неудачных попыток: {stats['selenium_failures']}")
-                    status_lines.append(f"• Использовано резервов: {stats['fallback_used']}")
-                    status_lines.append(f"• Всего постов извлечено: {stats['total_posts_parsed']}")
-                    
-                    # Кэш
-                    status_lines.append(f"\n💾 <b>Кэш:</b> {stats['cached_posts']} постов")
-                    
-                    # Последнее обновление
-                    if stats['last_update']:
-                        last_update = datetime.fromisoformat(stats['last_update'])
-                        formatted_date = last_update.strftime('%d.%m.%Y %H:%M:%S')
-                        status_lines.append(f"🕐 <b>Последнее обновление:</b> {formatted_date}")
-                    
-                    # Статус готовности
-                    if stats['can_parse']:
-                        status_lines.append("🟢 <b>Готовность:</b> Готов к парсингу")
-                    else:
-                        cooldown = min(stats['failure_count'] * 3, 45)
-                        time_passed = 0
-                        if self.parser.last_attempt:
-                            time_passed = int((datetime.now() - self.parser.last_attempt).total_seconds() / 60)
-                        remaining = max(0, cooldown - time_passed)
-                        status_lines.append(f"🟡 <b>Кулдаун:</b> {remaining} мин (из {cooldown})")
-                    
+                if parsed_count > 0:
+                    status_text += f"📡 Получено актуальных: {parsed_count}\n"
+                    status_text += f"✅ Парсинг работает!"
                 else:
-                    status_lines.append("❌ <b>Selenium:</b> Не установлен")
-                    status_lines.append("\n📦 <b>Для установки:</b>")
-                    status_lines.append("pip install selenium undetected-chromedriver")
+                    status_text += f"⚠️ Парсинг недоступен\n"
+                    status_text += f"🎭 Показаны примеры: {mock_count}\n"
+                    status_text += f"🔄 Попыток неудач: {self.parser.failure_count}"
                 
-                # Группы для парсинга
-                status_lines.append(f"\n📢 <b>Отслеживаемые группы:</b> {stats['groups_count']}")
+                self.bot.send_message(message.chat.id, status_text, parse_mode="HTML")
+                
+            except Exception as e:
+                logger.error(f"❌ Ошибка обновления: {e}")
+                self.bot.send_message(
+                    message.chat.id, 
+                    f"❌ Ошибка обновления: {str(e)[:100]}"
+                )
+        
+        @self.bot.message_handler(commands=['status'])
+        def status_handler(message):
+            """Подробная диагностика системы"""
+            try:
+                status_lines = ["🔧 <b>ДИАГНОСТИКА СИСТЕМЫ</b>\n"]
+                
+                # Статус парсера
+                if self.parser.last_update:
+                    last_update = self.parser.last_update.strftime('%d.%m.%Y %H:%M:%S')
+                    status_lines.append(f"📊 <b>Последнее обновление:</b> {last_update}")
+                else:
+                    status_lines.append("📊 <b>Последнее обновление:</b> Никогда")
+                
+                status_lines.append(f"❌ <b>Неудачных попыток:</b> {self.parser.failure_count}")
+                status_lines.append(f"💾 <b>Постов в кэше:</b> {len(self.parser.posts_cache)}")
+                
+                # Следующая попытка
+                if self.parser.should_attempt_parsing():
+                    status_lines.append("✅ <b>Статус:</b> Готов к обновлению")
+                else:
+                    cooldown = min(self.parser.failure_count * 5, 60)
+                    time_passed = 0
+                    if self.parser.last_attempt:
+                        time_passed = int((datetime.now() - self.parser.last_attempt).total_seconds() / 60)
+                    remaining = max(0, cooldown - time_passed)
+                    status_lines.append(f"⏳ <b>Кулдаун:</b> {remaining} мин (из {cooldown})")
+                
+                # Статус групп
+                status_lines.append("\n📢 <b>ГРУППЫ:</b>")
                 for group in self.parser.groups:
-                    group_emoji = "🐱" if group['type'] == 'cats' else "🐶"
-                    status_lines.append(f"{group_emoji} {group['username']}")
+                    group_type = "🐱" if group['type'] == 'cats' else "🐶"
+                    status_lines.append(f"{group_type} {group['username']}")
                 
-                # Быстрый тест (если Selenium доступен)
-                if self.parser.selenium_enabled:
-                    status_lines.append("\n🧪 <b>Быстрый тест:</b>")
-                    try:
-                        # Создаем тестовый драйвер
-                        test_driver = self.parser.setup_selenium_driver(headless=True)
-                        test_driver.quit()
-                        status_lines.append("✅ Драйвер создается успешно")
-                    except Exception as e:
-                        status_lines.append(f"❌ Ошибка драйвера: {str(e)[:50]}...")
+                # Быстрый тест доступности
+                status_lines.append("\n🧪 <b>БЫСТРЫЙ ТЕСТ:</b>")
+                try:
+                    test_url = f"https://t.me/s/{self.parser.groups[0]['username']}"
+                    response = requests.get(test_url, timeout=5, headers=self.parser.get_advanced_headers())
+                    
+                    if response.status_code == 200:
+                        if "cloudflare" in response.text.lower():
+                            status_lines.append("⚠️ Cloudflare защита активна")
+                        elif len(response.text) > 10000:
+                            status_lines.append("✅ Группа доступна для парсинга")
+                        else:
+                            status_lines.append("⚠️ Получен короткий ответ")
+                    else:
+                        status_lines.append(f"❌ HTTP {response.status_code}")
+                        
+                except Exception as e:
+                    status_lines.append(f"❌ Ошибка теста: {str(e)[:50]}")
                 
                 self.bot.send_message(
                     message.chat.id,
@@ -1106,81 +922,56 @@ class EnhancedCatBotWithSelenium:
             except Exception as e:
                 self.bot.send_message(message.chat.id, f"❌ Ошибка диагностики: {e}")
         
-        @self.bot.message_handler(commands=['update'])
-        def update_handler(message):
-            """Принудительное обновление через Selenium"""
-            loading_msg = self.bot.send_message(
+        @self.bot.message_handler(commands=['reset'])
+        def reset_handler(message):
+            """Сброс счетчиков неудач"""
+            self.parser.failure_count = 0
+            self.parser.last_attempt = None
+            self.bot.send_message(
                 message.chat.id, 
-                "🔄 <b>Принудительное обновление...</b>\n\n"
-                "🤖 Запускаем Selenium парсинг\n"
-                "⏳ Подождите 30-60 секунд",
+                "🔄 Счетчики сброшены. Парсинг будет повторен при следующем запросе."
+            )
+        
+        # Остальные обработчики остаются такими же...
+        @self.bot.message_handler(func=lambda m: m.text == "🏥 Стерилизация")
+        def sterilization_handler(message):
+            self.stats["users"].add(message.from_user.id)
+            self.stats["messages"] += 1
+            
+            self.bot.send_message(
+                message.chat.id,
+                "🏥 <b>Стерилизация животных</b>\n\nВыберите вариант:",
+                parse_mode="HTML",
+                reply_markup=self.get_sterilization_keyboard()
+            )
+        
+        @self.bot.message_handler(func=lambda m: m.text == "💰 Платная стерилизация")
+        def paid_sterilization_handler(message):
+            self.bot.send_message(
+                message.chat.id,
+                self.load_html_file('paid_text.html'),
                 parse_mode="HTML"
             )
-            
-            # Сброс ограничений
-            self.parser.posts_cache = []
-            self.parser.last_update = None
-            self.parser.failure_count = max(0, self.parser.failure_count - 2)
-            
-            try:
-                # Запускаем парсинг
-                posts = self.parser.get_group_posts_selenium('all', 6)
-                stats = self.parser.get_statistics()
-                
-                selenium_count = sum(1 for p in posts if p.get('source') == 'selenium')
-                mock_count = len(posts) - selenium_count
-                
-                # Удаляем сообщение о загрузке
-                try:
-                    self.bot.delete_message(message.chat.id, loading_msg.message_id)
-                except:
-                    pass
-                
-                status_text = f"🔄 <b>Результат принудительного обновления:</b>\n\n"
-                
-                if selenium_count > 0:
-                    status_text += f"✅ <b>Selenium парсинг успешен!</b>\n"
-                    status_text += f"🤖 Получено через Selenium: {selenium_count}\n"
-                    status_text += f"📋 Резервных примеров: {mock_count}\n"
-                    status_text += f"📊 Всего успешных парсингов: {stats['selenium_success']}"
-                else:
-                    status_text += f"⚠️ <b>Selenium парсинг недоступен</b>\n"
-                    if not self.parser.selenium_enabled:
-                        status_text += f"🔧 Причина: Selenium не установлен\n"
-                    else:
-                        status_text += f"🔄 Неудачных попыток: {stats['selenium_failures']}\n"
-                    status_text += f"🎭 Показаны примеры: {mock_count}"
-                
-                self.bot.send_message(message.chat.id, status_text, parse_mode="HTML")
-                
-            except Exception as e:
-                logger.error(f"❌ Ошибка принудительного обновления: {e}")
-                try:
-                    self.bot.delete_message(message.chat.id, loading_msg.message_id)
-                except:
-                    pass
-                self.bot.send_message(
-                    message.chat.id, 
-                    f"❌ <b>Ошибка обновления:</b>\n\n"
-                    f"🔧 {str(e)[:100]}...\n\n"
-                    f"💡 Попробуйте /selenium_status для диагностики",
-                    parse_mode="HTML"
-                )
-
-        # Остальные обработчики остаются такими же как в оригинальном коде
+        
+        @self.bot.message_handler(func=lambda m: m.text == "🆓 Бесплатная стерилизация")
+        def free_sterilization_handler(message):
+            self.bot.send_message(
+                message.chat.id,
+                self.load_html_file('free_text.html'),
+                parse_mode="HTML"
+            )
+        
         @self.bot.message_handler(func=lambda m: m.text == "🏠 Пристройство")
         def adoption_handler(message):
             self.stats["users"].add(message.from_user.id)
             self.stats["messages"] += 1
             
-            stats = self.parser.get_statistics()
-            selenium_posts = sum(1 for p in self.parser.posts_cache if p.get('source') == 'selenium')
-            
+            # Показываем статус парсинга в меню
+            parsed_posts = sum(1 for p in self.parser.posts_cache if p.get('source') == 'parsed')
             status_line = ""
-            if selenium_posts > 0:
-                status_line = f"\n🤖 <b>Статус:</b> Selenium активен ({selenium_posts} объявлений)"
-            elif not self.parser.selenium_enabled:
-                status_line = f"\n🔧 <b>Статус:</b> Selenium не установлен"
+            
+            if parsed_posts > 0:
+                status_line = f"\n📡 <b>Статус:</b> Данные актуальны ({parsed_posts} объявлений)"
             elif self.parser.failure_count > 0:
                 status_line = f"\n⚠️ <b>Статус:</b> Парсинг временно недоступен"
             else:
@@ -1191,10 +982,10 @@ class EnhancedCatBotWithSelenium:
 Выберите действие:
 
 🐱 <b>Кошки ищут дом</b>
-Актуальные объявления через Selenium
+Актуальные объявления из группы
 
 🐶 <b>Собаки ищут дом</b>
-Актуальные объявления через Selenium
+Актуальные объявления из группы
 
 📝 <b>Подать объявление</b>
 Как разместить свое объявление"""
@@ -1213,124 +1004,187 @@ class EnhancedCatBotWithSelenium:
         @self.bot.message_handler(func=lambda m: m.text == "🐶 Собаки ищут дом")
         def dogs_handler(message):
             self.send_group_posts(message.chat.id, 'dogs')
+        
+        @self.bot.message_handler(func=lambda m: m.text == "📝 Подать объявление")
+        def post_ad_handler(message):
+            info_text = f"""📝 <b>Подать объявление</b>
 
-        # Остальные обработчики (стерилизация, контакты и т.д.) остаются без изменений
-        # ... [здесь должны быть остальные обработчики из оригинального кода]
+📢 <b>Группы для объявлений:</b>
+<a href="{self.parser.groups[0]['url']}">Лапки-ручки Ялта</a> (кошки)
+<a href="{self.parser.groups[1]['url']}">Ялта Животные</a> (собаки)
+
+✍️ <b>Как подать:</b>
+1️⃣ Перейти в группу
+2️⃣ Написать администраторам  
+3️⃣ Или связаться с координаторами
+
+📋 <b>Нужная информация:</b>
+🔹 Фото животного
+🔹 Возраст, пол, окрас  
+🔹 Характер и особенности
+🔹 Здоровье (прививки, стерилизация)
+🔹 Ваши контакты для связи"""
+            
+            self.bot.send_message(message.chat.id, info_text, parse_mode="HTML")
+        
+        @self.bot.message_handler(func=lambda m: m.text == "📞 Контакты")
+        def contacts_handler(message):
+            contacts_text = """📞 <b>КОНТАКТЫ</b>
+
+👥 <b>Координаторы:</b>
+🔹 Кошки: +7 978 144-90-70
+🔹 Собаки: +7 978 000-00-02  
+🔹 Лечение: +7 978 000-00-03
+
+🏥 <b>Ветклиники:</b>
+🔹 "Айболит": +7 978 000-00-04
+🔹 "ВетМир": +7 978 000-00-05
+
+📱 <b>Социальные сети:</b>  
+🔹 Telegram: @yalta_animals
+🔹 Instagram: @yalta_street_animals
+
+⚡ <b>Экстренные случаи:</b>
++7 978 000-00-01 (круглосуточно)"""
+            
+            self.bot.send_message(message.chat.id, contacts_text, parse_mode="HTML")
+        
+        @self.bot.message_handler(func=lambda m: m.text == "ℹ️ О проекте")  
+        def about_handler(message):
+            about_text = """ℹ️ <b>О ПРОЕКТЕ</b>
+
+🎯 <b>Наша миссия:</b>
+Помощь бездомным животным Ялты и окрестностей
+
+📊 <b>Наши достижения:</b>
+🔹 Стерилизовано: 500+ кошек, 200+ собак
+🔹 Пристроено в семьи: 300+ животных  
+🔹 Активных волонтеров: 50+ человек
+🔹 Партнерских клиник: 5
+
+💰 <b>Поддержать проект:</b>
+Сбербанк: 2202 2020 0000 0000
+ЮMoney: 410012345678901
+
+🤝 <b>Стать волонтером:</b>
+Пишите координаторам или в группы
+
+🔄 <b>Этот бот:</b>
+Автоматически собирает объявления из Telegram-групп волонтеров"""
+            
+            self.bot.send_message(message.chat.id, about_text, parse_mode="HTML")
+        
+        @self.bot.message_handler(func=lambda m: m.text == "🔙 Назад")
+        def back_handler(message):
+            self.bot.send_message(
+                message.chat.id, 
+                "🏠 Главное меню:", 
+                reply_markup=self.get_main_keyboard()
+            )
+        
+        @self.bot.message_handler(func=lambda m: True)
+        def default_handler(message):
+            self.stats["users"].add(message.from_user.id)
+            self.stats["messages"] += 1
+            
+            help_text = """❓ <b>Используйте кнопки меню</b>
+
+🚀 Доступные команды:
+/start - главное меню
+/update - обновить объявления  
+/status - диагностика системы
+/reset - сбросить ошибки
+
+💡 Или выберите нужный раздел кнопками ниже"""
+            
+            self.bot.send_message(
+                message.chat.id,
+                help_text,
+                parse_mode="HTML", 
+                reply_markup=self.get_main_keyboard()
+            )
 
     def setup_routes(self):
-        """Flask маршруты с дополнительной информацией о Selenium"""
+        """Flask маршруты для мониторинга"""
+        
+        @self.app.route(f'/{self.token}', methods=['POST'])
+        def webhook():
+            try:
+                if request.headers.get('content-type') == 'application/json':
+                    json_string = request.get_data().decode('utf-8')
+                    update = telebot.types.Update.de_json(json_string)
+                    self.bot.process_new_updates([update])
+                    return '', 200
+                return 'Bad request', 400
+            except Exception as e:
+                logger.error(f"❌ Webhook ошибка: {e}")
+                return 'Internal error', 500
         
         @self.app.route('/')
         def home():
-            stats = self.parser.get_statistics()
-            selenium_posts = sum(1 for p in self.parser.posts_cache if p.get('source') == 'selenium')
+            parsed_count = sum(1 for p in self.parser.posts_cache if p.get('source') == 'parsed')
             
             return jsonify({
-                "status": "🤖 Enhanced Animal Bot with Selenium",
-                "version": "3.0-selenium",
+                "status": "🤖 Enhanced Animal Bot",
+                "version": "2.0",
                 "time": datetime.now().strftime('%H:%M:%S'),
                 "users": len(self.stats["users"]), 
                 "messages": self.stats["messages"],
-                "selenium": {
-                    "enabled": self.parser.selenium_enabled,
-                    "success_count": stats['selenium_success'],
-                    "failure_count": stats['selenium_failures'],
-                    "fallback_used": stats['fallback_used'],
-                    "posts_extracted": stats['total_posts_parsed'],
-                    "cached_posts": stats['cached_posts'],
-                    "selenium_posts": selenium_posts,
-                    "can_parse": stats['can_parse'],
-                    "last_update": stats['last_update']
+                "parser": {
+                    "cached_posts": len(self.parser.posts_cache),
+                    "parsed_posts": parsed_count,
+                    "mock_posts": len(self.parser.posts_cache) - parsed_count,
+                    "failure_count": self.parser.failure_count,
+                    "last_update": self.parser.last_update.isoformat() if self.parser.last_update else None,
+                    "can_parse": self.parser.should_attempt_parsing()
                 },
                 "groups": [g['url'] for g in self.parser.groups]
             })
         
-        @self.app.route('/selenium_test')
-        def selenium_test():
-            """API endpoint для тестирования Selenium"""
-            if not self.parser.selenium_enabled:
-                return jsonify({
-                    "status": "error",
-                    "message": "Selenium не установлен",
-                    "install_command": "pip install selenium undetected-chromedriver"
-                }), 400
-            
-            try:
-                # Быстрый тест создания драйвера
-                start_time = time.time()
-                test_driver = self.parser.setup_selenium_driver(headless=True)
-                setup_time = time.time() - start_time
-                
-                # Тест загрузки простой страницы
-                load_start = time.time()
-                test_driver.get("https://httpbin.org/user-agent")
-                load_time = time.time() - load_start
-                
-                user_agent = test_driver.find_element(By.TAG_NAME, "body").text
-                test_driver.quit()
-                
-                return jsonify({
-                    "status": "success",
-                    "setup_time": round(setup_time, 2),
-                    "load_time": round(load_time, 2),
-                    "user_agent": user_agent[:100],
-                    "timestamp": datetime.now().isoformat()
-                })
-                
-            except Exception as e:
-                return jsonify({
-                    "status": "error",
-                    "message": str(e)[:200],
-                    "timestamp": datetime.now().isoformat()
-                }), 500
-        
         @self.app.route('/posts')
         def posts_api():
             try:
-                posts = self.parser.get_cached_or_mock_posts('all', 10)
-                stats = self.parser.get_statistics()
-                selenium_count = sum(1 for p in posts if p.get('source') == 'selenium')
+                posts = self.parser.get_cached_posts()
+                parsed_count = sum(1 for p in posts if p.get('source') == 'parsed')
                 
                 return jsonify({
                     "status": "ok",
                     "total": len(posts),
-                    "selenium_posts": selenium_count,
-                    "mock_posts": len(posts) - selenium_count,
+                    "parsed": parsed_count,
+                    "mocks": len(posts) - parsed_count,
                     "posts": posts,
-                    "selenium_stats": stats
+                    "parser_status": {
+                        "failure_count": self.parser.failure_count,
+                        "can_attempt": self.parser.should_attempt_parsing(),
+                        "last_update": self.parser.last_update.isoformat() if self.parser.last_update else None
+                    }
                 })
             except Exception as e:
                 return jsonify({"status": "error", "message": str(e)}), 500
         
-        @self.app.route('/force_selenium_update')
-        def force_selenium_update():
-            """API для принудительного Selenium обновления"""
+        @self.app.route('/force_update')
+        def force_update_api():
+            """API для принудительного обновления"""
             try:
                 # Сброс ограничений
                 self.parser.posts_cache = []
                 self.parser.last_update = None  
                 self.parser.failure_count = max(0, self.parser.failure_count - 2)
                 
-                start_time = time.time()
-                posts = self.parser.get_group_posts_selenium('all', 8)
-                parse_time = time.time() - start_time
-                
-                stats = self.parser.get_statistics()
-                selenium_count = sum(1 for p in posts if p.get('source') == 'selenium')
+                posts = self.parser.get_group_posts('all', 5)
+                parsed_count = sum(1 for p in posts if p.get('source') == 'parsed')
                 
                 return jsonify({
-                    "status": "selenium_updated",
+                    "status": "force_updated",
                     "timestamp": datetime.now().isoformat(),
-                    "parse_time": round(parse_time, 2),
                     "total_posts": len(posts),
-                    "selenium_posts": selenium_count,
-                    "mock_posts": len(posts) - selenium_count,
-                    "selenium_enabled": self.parser.selenium_enabled,
-                    "stats": stats
+                    "parsed_posts": parsed_count,
+                    "mock_posts": len(posts) - parsed_count,
+                    "failure_count": self.parser.failure_count
                 })
             except Exception as e:
-                logger.error(f"❌ Force selenium update error: {e}")
-                return jsonify({"status": "error", "message": str(e)[:200]}), 500
+                logger.error(f"❌ Force update error: {e}")
+                return jsonify({"status": "error", "message": str(e)}), 500
 
     def setup_webhook(self) -> bool:
         """Настройка webhook"""
@@ -1357,39 +1211,27 @@ class EnhancedCatBotWithSelenium:
             return False
 
     def run(self):
-        """Запуск Enhanced Animal Bot с Selenium"""
-        logger.info("🚀 Запуск Enhanced Animal Bot v3.0 with Selenium...")
+        """Запуск улучшенного бота"""
+        logger.info("🚀 Запуск Enhanced Animal Bot v2.0...")
         
-        # Проверяем доступность Selenium
-        if self.parser.selenium_enabled:
-            logger.info("✅ Selenium парсинг доступен")
-            try:
-                # Быстрый тест Selenium
-                test_driver = self.parser.setup_selenium_driver(headless=True)
-                test_driver.quit()
-                logger.info("✅ Selenium драйвер работает корректно")
-            except Exception as e:
-                logger.warning(f"⚠️ Проблема с Selenium драйвером: {e}")
-                self.parser.selenium_enabled = False
-        else:
-            logger.warning("⚠️ Selenium не доступен - будут использоваться примеры")
-        
-        # Предзагрузка постов через Selenium
+        # Проверяем наличие cloudscraper
         try:
-            logger.info("🔄 Предзагрузка постов через Selenium...")
-            posts = self.parser.get_group_posts_selenium('all', 5)
-            stats = self.parser.get_statistics()
+            import cloudscraper
+            logger.info("✅ CloudScraper доступен")
+        except ImportError:
+            logger.warning("⚠️ CloudScraper не установлен: pip install cloudscraper")
+        
+        # Предзагрузка постов  
+        try:
+            posts = self.parser.get_cached_posts()
+            parsed_count = sum(1 for p in posts if p.get('source') == 'parsed')
+            logger.info(f"✅ Предзагружено {len(posts)} постов (парсинг: {parsed_count}, моки: {len(posts) - parsed_count})")
             
-            selenium_count = sum(1 for p in posts if p.get('source') == 'selenium')
-            mock_count = len(posts) - selenium_count
-            
-            if selenium_count > 0:
-                logger.info(f"✅ Предзагружено {len(posts)} постов через Selenium (реальных: {selenium_count}, примеров: {mock_count})")
-            else:
-                logger.warning(f"⚠️ Selenium парсинг неудачен, загружены примеры: {mock_count}")
+            if parsed_count == 0 and self.parser.failure_count > 0:
+                logger.warning(f"⚠️ Парсинг недоступен, неудач: {self.parser.failure_count}")
                 
         except Exception as e:
-            logger.warning(f"⚠️ Ошибка предзагрузки через Selenium: {e}")
+            logger.warning(f"⚠️ Ошибка предзагрузки: {e}")
         
         # Запуск бота
         if self.setup_webhook():
@@ -1403,16 +1245,12 @@ class EnhancedCatBotWithSelenium:
                 logger.error(f"❌ Ошибка polling: {e}")
                 time.sleep(5)
                 self.bot.polling()
-        
-        # Очистка ресурсов при завершении
-        self.parser.cleanup_driver()
-
 
 if __name__ == "__main__":
     # Создание необходимых файлов и папок
     os.makedirs('assets/images', exist_ok=True)
     
-    # Создание информационных файлов (если не существуют)
+    # Создание информационных файлов
     if not os.path.exists('assets/free_text.html'):
         with open('assets/free_text.html', 'w', encoding='utf-8') as f:
             f.write("""<b>🆓 БЕСПЛАТНАЯ СТЕРИЛИЗАЦИЯ</b>
@@ -1421,14 +1259,39 @@ if __name__ == "__main__":
 🔹 Муниципальная программа города Ялты
 🔹 Благотворительные фонды защиты животных
 🔹 Волонтерские программы стерилизации
+🔹 Акции ветеринарных клиник
+
+📋 <b>Условия участия:</b>
+✅ Бездомные и полубездомные животные
+✅ Животные из малоимущих семей (справка о доходах)
+✅ По направлению волонтерских организаций
+✅ Социально незащищенные граждане (пенсионеры, инвалиды)
 
 📞 <b>Контакты для записи:</b>
 🔹 Координатор программы: +7 978 144-90-70
 🔹 Клиника "Айболит": +7 978 000-00-11  
+🔹 Ветцентр "Зооветсервис": +7 978 000-00-15
+🔹 Группа волонтеров: @yalta_free_sterilization
+
+📍 <b>Адреса участвующих клиник:</b>
+🏥 ул. Кирова, 15 (пн-пт 9:00-18:00)
+🏥 ул. Ленина, 32 (пн-сб 8:00-20:00)  
+🏥 ул. Чехова, 45 (пн-вс 9:00-19:00)
+
+📋 <b>Необходимые документы:</b>
+📄 Справка о доходах (для льготников)
+📄 Направление от волонтеров (для бездомных животных)
+📄 Паспорт владельца
+📄 Справка о регистрации (для местных жителей)
 
 ⚠️ <b>Важно знать:</b>
 ⏰ Запись строго заранее! Места ограничены
-📅 Программа действует круглый год""")
+📅 Программа действует круглый год
+🔄 Повторные операции не входят в программу
+💉 Дополнительные процедуры оплачиваются отдельно
+
+🆘 <b>Экстренные случаи:</b>
+При травмах и неотложных состояниях - немедленно обращайтесь в ветклиники!""")
 
     if not os.path.exists('assets/paid_text.html'):
         with open('assets/paid_text.html', 'w', encoding='utf-8') as f:
@@ -1438,52 +1301,82 @@ if __name__ == "__main__":
 
 🔹 <b>Клиника "Айболит"</b>
    💰 Кошки: от 3000₽ | Коты: от 2500₽
-   💰 Собаки: от 5000₽ | Кобели: от 4000₽  
+   💰 Собаки (сучки): от 5000₽ | Собаки (кобели): от 4000₽  
    📞 +7 978 000-00-12
    📍 ул. Московская, 14
+   ⏰ пн-вс 8:00-20:00
 
 🔹 <b>Ветцентр "ВетМир"</b>  
    💰 Кошки: от 2500₽ | Коты: от 2000₽
-   💰 Собаки: от 4500₽ | Кобели: от 3500₽
+   💰 Собаки (сучки): от 4500₽ | Собаки (кобели): от 3500₽
    📞 +7 978 000-00-13  
-   📍 ул. Пушкина, 28""")
+   📍 ул. Пушкина, 28
+   ⏰ пн-сб 9:00-19:00
+
+🔹 <b>Клиника "Зооветцентр"</b>
+   💰 Кошки: от 3500₽ | Коты: от 2800₽  
+   💰 Собаки (сучки): от 5500₽ | Собаки (кобели): от 4200₽
+   📞 +7 978 000-00-14
+   📍 ул. Чехова, 45  
+   ⏰ пн-вс 9:00-21:00
+
+🔹 <b>Ветклиника "ПетВет"</b>
+   💰 Кошки: от 2800₽ | Коты: от 2200₽
+   💰 Собаки (сучки): от 4800₽ | Собаки (кобели): от 3800₽
+   📞 +7 978 000-00-16
+   📍 ул. Толстого, 12
+   ⏰ пн-пт 8:00-18:00, сб 9:00-15:00
+
+🌟 <b>В стоимость операции включено:</b>
+✔️ Полноценная хирургическая операция
+✔️ Качественный ингаляционный наркоз  
+✔️ Послеоперационный стационар (4-6 часов)
+✔️ Первичная консультация ветеринара
+✔️ Повторный осмотр через 7-10 дней
+✔️ Попона/воротник для послеоперационного периода
+
+💊 <b>Дополнительно оплачиваются:</b>
+🔸 Предоперационные анализы крови: от 800₽  
+🔸 УЗИ органов: от 1200₽
+🔸 Чипирование: от 1500₽
+🔸 Дополнительные препараты: по назначению
+
+💡 <b>Действующие скидки:</b>
+🎯 Постоянным клиникам - 10%
+🎯 Волонтерам и опекунам бездомных - 20%  
+🎯 При стерилизации 2+ животных - 15%
+🎯 Пенсионерам и студентам - 10%
+🎯 Сезонные акции (май, октябрь) - до 25%
+
+📅 <b>Запись на операцию:</b>
+⏰ Рекомендуется запись за 1-2 недели
+📋 При записи уточняйте все детали и стоимость
+💉 Животное должно быть здоровым и привитым
+
+⚠️ <b>Подготовка к операции:</b>  
+🍽️ Голодная диета 12 часов до операции
+💧 Ограничение воды за 4 часа  
+🚿 Гигиенические процедуры накануне
+📋 Принести все документы о прививках
+
+🆘 <b>Экстренная помощь:</b>
+При осложнениях после операции немедленно обращайтесь в клинику!""")
+
+    # Установка зависимостей (инструкции)
+    requirements_info = """
+Для улучшенного парсинга установите дополнительные зависимости:
+
+pip install cloudscraper beautifulsoup4 requests lxml
+
+CloudScraper помогает обходить защиту Cloudflare.
+"""
     
-    # Проверка установки зависимостей
-    print("🔧 Проверка зависимостей...")
-    
-    missing_deps = []
-    
-    try:
-        import undetected_chromedriver as uc
-        print("✅ undetected-chromedriver установлен")
-    except ImportError:
-        missing_deps.append("undetected-chromedriver")
-    
-    try:
-        from selenium import webdriver
-        print("✅ selenium установлен")
-    except ImportError:
-        missing_deps.append("selenium")
-    
-    if missing_deps:
-        print(f"\n❌ Не установлены зависимости: {', '.join(missing_deps)}")
-        print("📦 Для установки выполните:")
-        print(f"pip install {' '.join(missing_deps)}")
-        print("\n⚠️ Бот будет работать в режиме примеров без реального парсинга!")
-        time.sleep(3)
-    else:
-        print("✅ Все зависимости для Selenium установлены")
-    
-    # Информация о системных требованиях
-    print("\n📋 Системные требования для Selenium:")
-    print("• Chrome/Chromium браузер (устанавливается автоматически)")
-    print("• Минимум 512MB RAM для headless режима")  
-    print("• Стабильное интернет-соединение")
+    print("🔧 " + requirements_info)
     
     # Запуск бота
     try:
-        logger.info("🚀 Инициализация Enhanced Animal Bot with Selenium...")
-        bot = EnhancedCatBotWithSelenium()
+        logger.info("🚀 Инициализация Enhanced Animal Bot...")
+        bot = CatBotWithPhotos()
         bot.run()
     except KeyboardInterrupt:
         logger.info("👋 Бот остановлен пользователем")
@@ -1491,9 +1384,7 @@ if __name__ == "__main__":
         logger.error(f"💥 Критическая ошибка запуска: {e}")
         print("\n❌ Возможные причины:")
         print("1. Не установлен TOKEN в переменных окружения")
-        print("2. Отсутствуют зависимости: pip install selenium undetected-chromedriver")
-        print("3. Проблемы с Chrome/Chromium драйвером")
-        print("4. Недостаточно памяти для Selenium")
+        print("2. Отсутствуют зависимости: pip install -r requirements.txt")
+        print("3. Проблемы с сетью или доступом к Telegram API")
         print("\n🔄 Попробуйте перезапустить через 30 секунд...")
         time.sleep(30)
-
