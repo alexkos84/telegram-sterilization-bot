@@ -1,17 +1,45 @@
-# Core dependencies
-telebot==0.0.5
+# 🤖 Telegram Bot Framework
 pyTelegramBotAPI==4.14.0
+
+# 🌐 Web Framework для webhook и API
 Flask==3.0.0
+Werkzeug==3.0.1
+
+# 🔍 Web Scraping и парсинг HTML
 requests==2.31.0
 beautifulsoup4==4.12.2
+lxml==4.9.4
 
-# Additional dependencies that might be needed
-lxml==4.9.3
-html5lib==1.1
+# 📅 Работа с датами и временем
+python-dateutil==2.8.2
+
+# 🔒 Безопасность и SSL
 urllib3==2.1.0
 certifi==2023.11.17
+
+# 🧵 Многопоточность и асинхронность
+concurrent.futures; python_version < "3.2"
+
+# 📊 Обработка данных
+typing-extensions==4.8.0
+
+# 🐍 Python utility библиотеки  
+six==1.16.0
 charset-normalizer==3.3.2
 idna==3.6
 
-# Optional dependencies for better performance
-gunicorn==21.2.0
+# 📝 Логирование (улучшенное)
+colorlog==6.8.0
+
+# ⚡ Производительность
+cachetools==5.3.2
+
+# 🔧 Дополнительные утилиты для разработки (опционально)
+# python-dotenv==1.0.0  # для .env файлов
+# schedule==1.2.1       # для планировщика задач  
+# redis==5.0.1          # для внешнего кэша (опционально)
+
+# 🚀 Для деплоя на различных платформах
+gunicorn==21.2.0        # WSGI сервер для production
+waitress==2.1.2         # альтернативный WSGI сервер
+
