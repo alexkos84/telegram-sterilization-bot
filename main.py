@@ -24,8 +24,8 @@ class SimpleChannelParser:
     def __init__(self):
         self.channels = [
             {
-                'username': 'lapki_ruchki_yalta',
-                'url': 'https://t.me/lapki_ruchki_yalta',
+                'username': 'Котики_Ялта',
+                'url': 'https://t.me/cats_yalta',
                 'type': 'all'  # В этой группе и кошки, и собаки
             }
         ]
