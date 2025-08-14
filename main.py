@@ -11,7 +11,7 @@ from bs4 import BeautifulSoup
 import re
 from typing import Dict, List, Optional
 
-# 🔧 Настройка логирования
+# Настройка логирования
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -34,12 +34,6 @@ class AdvancedChannelParser:
                 'url': 'https://t.me/cats_yalta_group',
                 'type': 'cats',
                 'title': 'Котики Ялта (группа)'
-            },
-            {
-                'username': 'dogs_yalta',
-                'url': 'https://t.me/dogs_yalta',
-                'type': 'dogs',
-                'title': 'Собаки Ялта'
             }
         ]
         self.posts_cache = []
@@ -65,7 +59,7 @@ class AdvancedChannelParser:
                 
                 for div in message_divs[:limit*2]:
                     post_data = self.parse_message_div(div, channel)
-                    if post_data and self.is_animal_related(post_data.get('text', ''), channel['type']):
+                    if post_data and self.is_animal_related(post_data.get('text', '')):
                         posts.append(post_data)
                         if len(posts) >= limit:
                             break
@@ -131,7 +125,7 @@ class AdvancedChannelParser:
                 'date': date_str,
                 'timestamp': timestamp,
                 'url': f"{channel['url']}/{post_id}" if post_id else channel['url'],
-                'title': self.extract_title(text, channel['type']),
+                'title': self.extract_title(text),
                 'description': self.extract_description(text),
                 'contact': self.extract_contact(text),
                 'photo_url': photo_url,
@@ -146,7 +140,7 @@ class AdvancedChannelParser:
             logger.error(f"❌ Ошибка парсинга div: {e}")
             return None
     
-    def extract_title(self, text: str, animal_type: str) -> str:
+    def extract_title(self, text: str) -> str:
         """Извлекает заголовок из текста поста"""
         lines = text.split('\n')
         for line in lines[:3]:
@@ -155,8 +149,8 @@ class AdvancedChannelParser:
                 title = re.sub(r'[^\w\s\-\.,!?а-яёА-ЯЁ]', '', line)
                 if len(title) > 50:
                     title = title[:50] + "..."
-                return title or ("Котик ищет дом" if animal_type == 'cats' else "Собака ищет дом")
-        return "Котик ищет дом" if animal_type == 'cats' else "Собака ищет дом"
+                return title or "Котик ищет дом"
+        return "Котик ищет дом"
     
     def extract_description(self, text: str) -> str:
         """Извлекает описание из текста"""
@@ -182,92 +176,50 @@ class AdvancedChannelParser:
             
         return ' • '.join(contacts) if contacts else "См. в группе"
     
-    def is_animal_related(self, text: str, animal_type: str) -> bool:
+    def is_animal_related(self, text: str) -> bool:
         """Проверяет, относится ли пост к животным"""
-        if animal_type == 'cats':
-            animal_keywords = [
-                'кот', 'кошк', 'котен', 'котик', 'мурз', 'мяу',
-                'пристрой', 'дом', 'питомец', 'стерил', 'прививк',
-                'потерял', 'нашел', 'пропал', 'найден', 'потеряшка'
-            ]
-        else:
-            animal_keywords = [
-                'собак', 'щен', 'пес', 'псин', 'гав', 'лай',
-                'пристрой', 'дом', 'питомец', 'стерил', 'прививк',
-                'потерял', 'нашел', 'пропал', 'найден', 'потеряшка'
-            ]
-            
+        animal_keywords = [
+            'кот', 'кошк', 'котен', 'котик', 'мурз', 'мяу',
+            'пристрой', 'дом', 'питомец', 'стерил', 'прививк',
+            'потерял', 'нашел', 'пропал', 'найден', 'потеряшка'
+        ]
         text_lower = text.lower()
         return any(keyword in text_lower for keyword in animal_keywords)
     
     def get_mock_posts(self, channel_type: str = 'cats') -> List[Dict]:
         """Возвращает тестовые посты с фото"""
-        if channel_type == 'cats':
-            return [
-                {
-                    'id': '1001',
-                    'title': '🐱 Котенок Мурзик ищет дом',
-                    'description': 'Возраст: 2 месяца, мальчик, рыжий окрас. Здоров, привит, очень игривый.',
-                    'date': '03.08.2025 14:30',
-                    'timestamp': time.time(),
-                    'url': 'https://t.me/cats_yalta/1001',
-                    'contact': '@volunteer1 • +7 978 123-45-67',
-                    'photo_url': 'https://via.placeholder.com/600x400?text=Котенок+Мурзик',
-                    'video_url': None,
-                    'has_media': True,
-                    'type': 'cats',
-                    'channel': 'Котики Ялта',
-                    'channel_url': 'https://t.me/cats_yalta'
-                },
-                {
-                    'id': '1002',
-                    'title': '🐱 Взрослый кот Барсик',
-                    'description': 'Ищет дом взрослый кот, 3 года, кастрирован, приучен к лотку.',
-                    'date': '02.08.2025 11:20',
-                    'timestamp': time.time() - 3600,
-                    'url': 'https://t.me/cats_yalta_group/1002',
-                    'contact': '+7 978 765-43-21',
-                    'photo_url': 'https://via.placeholder.com/600x400?text=Кот+Барсик',
-                    'video_url': None,
-                    'has_media': True,
-                    'type': 'cats',
-                    'channel': 'Котики Ялта (группа)',
-                    'channel_url': 'https://t.me/cats_yalta_group'
-                }
-            ]
-        else:
-            return [
-                {
-                    'id': '2001',
-                    'title': '🐶 Щенок Рекс ищет дом',
-                    'description': 'Возраст: 3 месяца, мальчик, черный окрас. Активный, дружелюбный, привит.',
-                    'date': '04.08.2025 10:15',
-                    'timestamp': time.time(),
-                    'url': 'https://t.me/dogs_yalta/2001',
-                    'contact': '@dog_volunteer • +7 978 111-22-33',
-                    'photo_url': 'https://via.placeholder.com/600x400?text=Щенок+Рекс',
-                    'video_url': None,
-                    'has_media': True,
-                    'type': 'dogs',
-                    'channel': 'Собаки Ялта',
-                    'channel_url': 'https://t.me/dogs_yalta'
-                },
-                {
-                    'id': '2002',
-                    'title': '🐶 Взрослая собака Лайма',
-                    'description': 'Ищет дом взрослая собака, 4 года, стерилизована, приучена к поводку.',
-                    'date': '01.08.2025 09:10',
-                    'timestamp': time.time() - 7200,
-                    'url': 'https://t.me/dogs_yalta/2002',
-                    'contact': '+7 978 222-33-44',
-                    'photo_url': 'https://via.placeholder.com/600x400?text=Собака+Лайма',
-                    'video_url': None,
-                    'has_media': True,
-                    'type': 'dogs',
-                    'channel': 'Собаки Ялта',
-                    'channel_url': 'https://t.me/dogs_yalta'
-                }
-            ]
+        return [
+            {
+                'id': '1001',
+                'title': '🐱 Котенок Мурзик ищет дом',
+                'description': 'Возраст: 2 месяца, мальчик, рыжий окрас. Здоров, привит, очень игривый.',
+                'date': '03.08.2025 14:30',
+                'timestamp': time.time(),
+                'url': 'https://t.me/cats_yalta/1001',
+                'contact': '@volunteer1 • +7 978 123-45-67',
+                'photo_url': 'https://via.placeholder.com/600x400?text=Котенок+Мурзик',
+                'video_url': None,
+                'has_media': True,
+                'type': 'cats',
+                'channel': 'Котики Ялта',
+                'channel_url': 'https://t.me/cats_yalta'
+            },
+            {
+                'id': '1002',
+                'title': '🐱 Взрослый кот Барсик',
+                'description': 'Ищет дом взрослый кот, 3 года, кастрирован, приучен к лотку.',
+                'date': '02.08.2025 11:20',
+                'timestamp': time.time() - 3600,
+                'url': 'https://t.me/cats_yalta_group/1002',
+                'contact': '+7 978 765-43-21',
+                'photo_url': 'https://via.placeholder.com/600x400?text=Кот+Барсик',
+                'video_url': None,
+                'has_media': True,
+                'type': 'cats',
+                'channel': 'Котики Ялта (группа)',
+                'channel_url': 'https://t.me/cats_yalta_group'
+            }
+        ]
     
     def get_cached_posts(self, channel_type: str = 'all') -> List[Dict]:
         """Возвращает кэшированные или обновленные посты"""
@@ -280,7 +232,7 @@ class AdvancedChannelParser:
         return [p for p in self.posts_cache if channel_type == 'all' or p['type'] == channel_type] or self.get_mock_posts(channel_type)
 
 class CatBotWithPhotos:
-    """Бот для помощи животным Ялты с поддержкой фото и видео"""
+    """Бот для помощи кошкам Ялты с поддержкой фото и видео"""
     
     def __init__(self):
         self.token = os.environ.get('TOKEN')
@@ -294,10 +246,23 @@ class CatBotWithPhotos:
         self.port = int(os.environ.get('PORT', 8080))
         self.webhook_url = os.environ.get('WEBHOOK_URL')
         self.stats = {"users": set(), "messages": 0}
+        self.contacts = self.load_contacts()  # Загружаем контакты
         
         self.setup_handlers()
         self.setup_routes()
     
+    def load_contacts(self) -> dict:
+        """Загружает контакты из JSON-файла."""
+        try:
+            with open('assets/contacts.json', 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            logger.error(f"❌ Ошибка загрузки контактов: {e}")
+            return {
+                "контакты": {"светлана": "+7 978 XXX-XX-XX"},
+                "синонимы": {}
+            }
+
     def send_post(self, chat_id: int, post: Dict):
         """Отправляет один пост с медиа или текстом"""
         try:
@@ -374,27 +339,25 @@ class CatBotWithPhotos:
                 )
                 return
             
-            animal_name = "КОТИКИ" if animal_type == 'cats' else "СОБАКИ"
             self.bot.send_message(
                 chat_id,
-                f"{'🐱' if animal_type == 'cats' else '🐶'} <b>{animal_name} ИЩУТ ДОМ</b>\n\n"
+                f"🐱 <b>КОТИКИ ИЩУТ ДОМ</b>\n\n"
                 f"📢 Последние объявления из групп Ялты:",
                 parse_mode="HTML"
             )
             
             for post in posts:
                 self.send_post(chat_id, post)
-                time.sleep(0.7)  # Задержка между постами
+                time.sleep(0.7)  # Защита от флуда
             
             self.bot.send_message(
                 chat_id,
                 "💡 <b>Как помочь?</b>\n\n"
-                f"🏠 <b>Взять питомца:</b>\nСвяжитесь по контактам из объявления\n\n"
+                f"🏠 <b>Взять котика:</b>\nСвяжитесь по контактам из объявления\n\n"
                 f"📢 <b>Группы:</b>\n"
                 f"• <a href='{self.parser.channels[0]['url']}'>Котики Ялта (канал)</a>\n"
-                f"• <a href='{self.parser.channels[1]['url']}'>Котики Ялта (группа)</a>\n"
-                f"• <a href='{self.parser.channels[2]['url']}'>Собаки Ялта</a>\n\n"
-                "🤝 <b>Стать волонтером:</b>\nНапишите в соответствующую группу",
+                f"• <a href='{self.parser.channels[1]['url']}'>Котики Ялта (группа)</a>\n\n"
+                "🤝 <b>Стать волонтером:</b>\nНапишите в группу",
                 parse_mode="HTML"
             )
             
@@ -405,8 +368,7 @@ class CatBotWithPhotos:
                 f"⚠️ Ошибка загрузки объявлений\n\n"
                 f"Попробуйте позже или посетите группы:\n"
                 f"• {self.parser.channels[0]['url']}\n"
-                f"• {self.parser.channels[1]['url']}\n"
-                f"• {self.parser.channels[2]['url']}"
+                f"• {self.parser.channels[1]['url']}"
             )
 
     def get_main_keyboard(self):
@@ -414,12 +376,13 @@ class CatBotWithPhotos:
         markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
         markup.add("🏥 Стерилизация", "🏠 Пристройство")
         markup.add("📞 Контакты", "ℹ️ О проекте")
+        markup.add("🐱 Актуальные посты")
         return markup
     
     def get_adoption_keyboard(self):
         """Клавиатура пристройства"""
         markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-        markup.add("🐱 Кошки ищут дом", "🐶 Собаки ищут дом")
+        markup.add("🐱 Кошки ищут дом")
         markup.add("📝 Подать объявление")
         markup.add("🔙 Назад")
         return markup
@@ -448,15 +411,16 @@ class CatBotWithPhotos:
             self.stats["users"].add(message.from_user.id)
             self.stats["messages"] += 1
             
-            welcome_text = """👋 <b>Добро пожаловать в "Помощь животным Ялты"!</b>
+            welcome_text = """👋 <b>Добро пожаловать в "Котики Ялты"!</b>
 
-🐾 Помощник по животным Ялты
+🐾 Помощник по кошкам Ялты
 
 Выберите раздел:
 🏥 <b>Стерилизация</b> - информация
-🏠 <b>Пристройство</b> - животные ищут дом
+🏠 <b>Пристройство</b> - котики ищут дом
 📞 <b>Контакты</b> - связь с волонтерами
-ℹ️ <b>О проекте</b> - наша деятельность"""
+ℹ️ <b>О проекте</b> - наша деятельность
+🐱 <b>Актуальные посты</b> - свежие объявления"""
             
             self.bot.send_message(
                 message.chat.id, 
@@ -490,7 +454,7 @@ class CatBotWithPhotos:
                     self.bot.send_photo(
                         message.chat.id,
                         photo,
-                        caption="🏥 <b>Стерилизация животных</b>\n\nВыберите вариант:",
+                        caption="🏥 <b>Стерилизация кошек</b>\n\nВыберите вариант:",
                         parse_mode="HTML",
                         reply_markup=self.get_sterilization_keyboard()
                     )
@@ -498,7 +462,7 @@ class CatBotWithPhotos:
                 logger.error(f"❌ Ошибка загрузки фото: {e}")
                 self.bot.send_message(
                     message.chat.id,
-                    "🏥 <b>Стерилизация животных</b>\n\nВыберите вариант:",
+                    "🏥 <b>Стерилизация кошек</b>\n\nВыберите вариант:",
                     parse_mode="HTML",
                     reply_markup=self.get_sterilization_keyboard()
                 )
@@ -519,50 +483,85 @@ class CatBotWithPhotos:
                 parse_mode="HTML"
             )
         
-        @self.bot.message_handler(func=lambda m: m.text == "🏠 Пристройство")
-        def adoption_handler(message):
+        @self.bot.message_handler(func=lambda m: m.text == "🐱 Актуальные посты")
+        def recent_posts_handler(message):
+            self.send_channel_posts(message.chat.id)
+        
+        @self.bot.message_handler(func=lambda m: m.text and '@catYalta_bot' in m.text.lower())
+        def handle_mentions(message):
+            """Обработка упоминаний бота в чате"""
+            try:
+                query = message.text.lower().replace('@catyalta_bot', '').strip()
+                contacts = self.contacts["контакты"]
+                synonyms = self.contacts["синонимы"]
+                response = None
+                
+                # Проверяем прямые совпадения
+                for keyword in contacts:
+                    if keyword in query:
+                        response = f"📞 {keyword.capitalize()}: {contacts[keyword]}"
+                        break
+                
+                # Проверяем синонимы
+                if not response:
+                    for syn, original in synonyms.items():
+                        if syn in query:
+                            response = f"📞 {original.capitalize()}: {contacts[original]}"
+                            break
+                
+                if not response:
+                    response = (
+                        "🤷 Не нашёл контакта. Попробуйте:\n"
+                        "• 'Светлана'\n"
+                        "• 'Ветклиника'\n"
+                        "• 'Волонтеры'"
+                    )
+                
+                self.bot.reply_to(message, response)
+                
+            except Exception as e:
+                logger.error(f"Ошибка в handle_mentions: {e}")
+                self.bot.reply_to(message, "⚠️ Ошибка. Попробуйте позже.")
+        
+        @self.bot.message_handler(func=lambda m: True)
+        def message_handler(message):
             self.stats["users"].add(message.from_user.id)
             self.stats["messages"] += 1
             
-            info_text = """🏠 <b>Пристройство животных</b>
+            text = message.text
+            chat_id = message.chat.id
+            
+            try:
+                if text == "🏠 Пристройство":
+                    info_text = """🏠 <b>Пристройство котиков</b>
 
 Выберите действие:
 
 🐱 <b>Кошки ищут дом</b>
-Актуальные объявления о кошках
-
-🐶 <b>Собаки ищут дом</b>
-Актуальные объявления о собаках
+Актуальные объявления из групп
 
 📝 <b>Подать объявление</b>
 Как разместить свое объявление"""
                     
-            self.bot.send_message(
-                message.chat.id, 
-                info_text, 
-                parse_mode="HTML",
-                reply_markup=self.get_adoption_keyboard()
-            )
-        
-        @self.bot.message_handler(func=lambda m: m.text == "🐱 Кошки ищут дом")
-        def cats_posts_handler(message):
-            self.send_channel_posts(message.chat.id, 'cats')
-        
-        @self.bot.message_handler(func=lambda m: m.text == "🐶 Собаки ищут дом")
-        def dogs_posts_handler(message):
-            self.send_channel_posts(message.chat.id, 'dogs')
-        
-        @self.bot.message_handler(func=lambda m: m.text == "📝 Подать объявление")
-        def submit_ad_handler(message):
-            info_text = f"""📝 <b>Подать объявление</b>
+                    self.bot.send_message(
+                        chat_id, 
+                        info_text, 
+                        parse_mode="HTML",
+                        reply_markup=self.get_adoption_keyboard()
+                    )
+                
+                elif text == "🐱 Кошки ищут дом":
+                    self.send_channel_posts(chat_id)
+                
+                elif text == "📝 Подать объявление":
+                    info_text = f"""📝 <b>Подать объявление</b>
 
 📢 <b>Группы для объявлений:</b>
 • <a href="{self.parser.channels[0]['url']}">Котики Ялта (канал)</a>
 • <a href="{self.parser.channels[1]['url']}">Котики Ялта (группа)</a>
-• <a href="{self.parser.channels[2]['url']}">Собаки Ялта</a>
 
 ✍️ <b>Как подать:</b>
-1️⃣ Перейти в соответствующую группу
+1️⃣ Перейти в группу
 2️⃣ Написать администраторам
 3️⃣ Или связаться с координатором: +7 978 000-00-01
 
@@ -573,65 +572,62 @@ class CatBotWithPhotos:
 🔹 Здоровье (прививки, стерилизация)
 🔹 Ваши контакты"""
                     
-            self.bot.send_message(message.chat.id, info_text, parse_mode="HTML")
-        
-        @self.bot.message_handler(func=lambda m: m.text == "📞 Контакты")
-        def contacts_handler(message):
-            contacts_text = """📞 <b>КОНТАКТЫ</b>
+                    self.bot.send_message(chat_id, info_text, parse_mode="HTML")
+                
+                elif text == "📞 Контакты":
+                    contacts_text = """📞 <b>КОНТАКТЫ</b>
 
 👥 <b>Координаторы:</b>
 🔹 По кошкам: +7 978 144-90-70
-🔹 По собакам: +7 978 000-00-02
-🔹 Стерилизация: +7 978 000-00-03
-🔹 Лечение: +7 978 000-00-04
+🔹 По стерилизации: +7 978 000-00-02
+🔹 Лечение: +7 978 000-00-03
 
 🏥 <b>Клиники:</b>
-🔹 "Айболит": +7 978 000-00-05
-🔹 "ВетМир": +7 978 000-00-06
+🔹 "Айболит": +7 978 000-00-04
+🔹 "ВетМир": +7 978 000-00-05
 
 📱 <b>Социальные сети:</b>
-🔹 Telegram: @animals_yalta
-🔹 Instagram: @yalta_animals"""
+🔹 Telegram: @cats_yalta
+🔹 Instagram: @yalta_cats"""
                     
-            self.bot.send_message(message.chat.id, contacts_text, parse_mode="HTML")
-        
-        @self.bot.message_handler(func=lambda m: m.text == "ℹ️ О проекте")
-        def about_handler(message):
-            about_text = """ℹ️ <b>О ПРОЕКТЕ "ПОМОЩЬ ЖИВОТНЫМ ЯЛТЫ"</b>
+                    self.bot.send_message(chat_id, contacts_text, parse_mode="HTML")
+                
+                elif text == "ℹ️ О проекте":
+                    about_text = """ℹ️ <b>О ПРОЕКТЕ "КОТИКИ ЯЛТЫ"</b>
 
 🎯 <b>Миссия:</b>
-Помощь бездомным животным Ялты
+Помощь бездомным кошкам Ялты
 
 📊 <b>Достижения:</b>
-🔹 Стерилизовано: 800+ животных
-🔹 Пристроено: 500+ питомцев
-🔹 Волонтеров: 50+ активных
+🔹 Стерилизовано: 500+ кошек
+🔹 Пристроено: 300+ котят
+🔹 Волонтеров: 30+ активных
 
 💰 <b>Поддержать:</b>
 Карта: 2202 2020 0000 0000
 
 🤝 <b>Стать волонтером:</b>
-Пишите @animals_yalta_coordinator"""
+Пишите @cats_yalta_coordinator"""
                     
-            self.bot.send_message(message.chat.id, about_text, parse_mode="HTML")
-        
-        @self.bot.message_handler(func=lambda m: m.text == "🔙 Назад")
-        def back_handler(message):
-            self.bot.send_message(
-                message.chat.id, 
-                "🏠 Главное меню:", 
-                reply_markup=self.get_main_keyboard()
-            )
-        
-        @self.bot.message_handler(func=lambda m: True)
-        def default_handler(message):
-            self.stats["users"].add(message.from_user.id)
-            self.stats["messages"] += 1
-            self.bot.send_message(
-                message.chat.id,
-                "❓ Используйте кнопки меню\n\n/start - главное меню",
-                reply_markup=self.get_main_keyboard()
-            )
+                    self.bot.send_message(chat_id, about_text, parse_mode="HTML")
+                
+                elif text == "🔙 Назад":
+                    self.bot.send_message(
+                        chat_id, 
+                        "🏠 Главное меню:", 
+                        reply_markup=self.get_main_keyboard()
+                    )
+                
+                else:
+                    self.bot.send_message(
+                        chat_id,
+                        "❓ Используйте кнопки меню\n\n/start - главное меню",
+                        reply_markup=self.get_main_keyboard()
+                    )
+                    
+            except Exception as e:
+                logger.error(f"❌ Ошибка обработки: {e}")
+                self.bot.send_message(chat_id, "⚠️ Ошибка. Попробуйте /start")
     
     def setup_routes(self):
         """Flask маршруты"""
@@ -652,7 +648,7 @@ class CatBotWithPhotos:
         @self.app.route('/')
         def home():
             return jsonify({
-                "status": "🤖 Animal Bot Running",
+                "status": "🤖 Cat Bot Running",
                 "time": datetime.now().strftime('%H:%M:%S'),
                 "users": len(self.stats["users"]),
                 "messages": self.stats["messages"],
@@ -704,7 +700,7 @@ class CatBotWithPhotos:
     
     def run(self):
         """Запуск бота"""
-        logger.info("🚀 Запуск AnimalBot для Ялты...")
+        logger.info("🚀 Запуск CatBot для Ялты...")
         
         # Предзагрузка постов
         try:
@@ -726,15 +722,15 @@ if __name__ == "__main__":
     # Создаем файлы с информацией о стерилизации
     if not os.path.exists('assets/free_text.html'):
         with open('assets/free_text.html', 'w', encoding='utf-8') as f:
-            f.write("""<b>🐾 БЕСПЛАТНАЯ СТЕРИЛИЗАЦИЯ ЖИВОТНЫХ</b>
+            f.write("""<b>🐾 БЕСПЛАТНАЯ СТЕРИЛИЗАЦИЯ КОШЕК</b>
 
 🏥 <b>Программы:</b>
 🔹 Муниципальная программа Ялты
 🔹 Благотворительные фонды
 
 📋 <b>Условия:</b>
-✅ Бездомные животные
-✅ Животные из малоимущих семей
+✅ Бездомные кошки
+✅ Кошки из малоимущих семей
 ✅ По направлению волонтеров
 
 📞 <b>Контакты:</b>
@@ -746,11 +742,11 @@ if __name__ == "__main__":
 
     if not os.path.exists('assets/paid_text.html'):
         with open('assets/paid_text.html', 'w', encoding='utf-8') as f:
-            f.write("""<b>💵 ПЛАТНАЯ СТЕРИЛИЗАЦИЯ ЖИВОТНЫХ</b>
+            f.write("""<b>💵 ПЛАТНАЯ СТЕРИЛИЗАЦИЯ КОШЕК</b>
 
 🏥 <b>Клиники:</b>
-🔹 "Айболит": от 3000₽ (кошки), от 5000₽ (собаки)
-🔹 "ВетМир": от 2500₽ (кошки), от 4500₽ (собаки)
+🔹 "Айболит": от 3000₽
+🔹 "ВетМир": от 2500₽
 
 🌟 <b>Включено:</b>
 ✔️ Операция
@@ -764,7 +760,7 @@ if __name__ == "__main__":
 
 💡 <b>Скидки:</b>
 🔸 Волонтерам - 20%
-🔸 Многоквартирным животным - 15%""")
+🔸 Многоквартирным кошкам - 15%""")
 
     # Создаем placeholder изображение, если его нет
     if not os.path.exists('assets/images/sterilization.jpg'):
