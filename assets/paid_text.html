@@ -407,8 +407,52 @@ class CatBotWithPhotos:
             logger.error(f"❌ Ошибка загрузки HTML: {e}")
             return f"⚠️ Информация временно недоступна ({filename})"
 
+    def send_long_message(self, chat_id: int, text: str, parse_mode="HTML"):
+        """Отправляет длинное сообщение, разбивая на части если нужно"""
+        max_length = 4000  # Оставляем запас для безопасности
+        
+        # Проверяем наличие специального маркера разделения
+        if "---SPLIT---" in text:
+            parts = text.split("---SPLIT---")
+            for i, part in enumerate(parts):
+                if i > 0:
+                    time.sleep(0.5)  # Задержка между сообщениями
+                part = part.strip()
+                if part:
+                    self.bot.send_message(chat_id, part, parse_mode=parse_mode)
+            return
+        
+        if len(text) <= max_length:
+            self.bot.send_message(chat_id, text, parse_mode=parse_mode)
+            return
+        
+        # Разбиваем автоматически по строкам
+        parts = []
+        current_part = ""
+        
+        lines = text.split('\n')
+        for line in lines:
+            test_part = current_part + '\n' + line if current_part else line
+            
+            if len(test_part) > max_length and current_part:
+                parts.append(current_part.strip())
+                current_part = line
+            else:
+                current_part = test_part
+        
+        if current_part:
+            parts.append(current_part.strip())
+        
+        # Отправляем части с небольшой задержкой
+        for i, part in enumerate(parts):
+            if i > 0:
+                time.sleep(0.5)  # Задержка между сообщениями
+            if part.strip():
+                self.bot.send_message(chat_id, part, parse_mode=parse_mode)
+    
     def get_clinics_by_city(self, city: str) -> str:
         """Возвращает список клиник по городу"""
+        clinics_data = {
         clinics_data = {
             "ялта": """<b>📍 ЯЛТА</b>
 
@@ -449,6 +493,8 @@ class CatBotWithPhotos:
 💊 Ветаптека, рентген
 📞 +7 (978) 988-51-05
 🔗 <a href="https://vk.com/vetclinica_fauna_yalta">VK страница</a>
+
+---SPLIT---
 
 6️⃣ <b>Клиника "Хатико"</b>
 📌 ул. Московская, 59 (ост. Автовокзал)
@@ -699,11 +745,7 @@ class CatBotWithPhotos:
             city = city_emoji_map.get(message.text, "")
             if city:
                 clinic_info = self.get_clinics_by_city(city)
-                self.bot.send_message(
-                    message.chat.id,
-                    clinic_info,
-                    parse_mode="HTML"
-                )
+                self.send_long_message(message.chat.id, clinic_info)
         
         @self.bot.message_handler(func=lambda m: True)
         def message_handler(message):
