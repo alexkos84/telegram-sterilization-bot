@@ -381,23 +381,6 @@ class CatBotWithPhotos:
         markup.add("🔙 Назад")
         return markup
 
-    def get_contacts_keyboard(self):
-        """Клавиатура контактов"""
-        markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-        markup.add("🏥 Клиники", "🤝 Волонтеры")
-        markup.add("🔙 Назад")
-        return markup
-    
-    def get_clinics_keyboard(self):
-        """Клавиатура выбора городов для клиник"""
-        markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-        markup.add("🏛️ Ялта", "🌊 Гурзуф")
-        markup.add("🏔️ Гаспра", "🌅 Кореиз")
-        markup.add("🏖️ Алупка", "🌲 Симеиз")
-        markup.add("⛰️ Оползневое")
-        markup.add("🔙 Назад")
-        return markup
-
     def load_html_file(self, filename: str) -> str:
         """Загружает HTML файл из папки assets"""
         try:
@@ -406,183 +389,6 @@ class CatBotWithPhotos:
         except Exception as e:
             logger.error(f"❌ Ошибка загрузки HTML: {e}")
             return f"⚠️ Информация временно недоступна ({filename})"
-
-    def send_long_message(self, chat_id: int, text: str, parse_mode="HTML"):
-        """Отправляет длинное сообщение, разбивая на части если нужно"""
-        max_length = 4000  # Оставляем запас для безопасности
-        
-        # Проверяем наличие специального маркера разделения
-        if "---SPLIT---" in text:
-            parts = text.split("---SPLIT---")
-            for i, part in enumerate(parts):
-                if i > 0:
-                    time.sleep(0.5)  # Задержка между сообщениями
-                part = part.strip()
-                if part:
-                    self.bot.send_message(chat_id, part, parse_mode=parse_mode)
-            return
-        
-        if len(text) <= max_length:
-            self.bot.send_message(chat_id, text, parse_mode=parse_mode)
-            return
-        
-        # Разбиваем автоматически по строкам
-        parts = []
-        current_part = ""
-        
-        lines = text.split('\n')
-        for line in lines:
-            test_part = current_part + '\n' + line if current_part else line
-            
-            if len(test_part) > max_length and current_part:
-                parts.append(current_part.strip())
-                current_part = line
-            else:
-                current_part = test_part
-        
-        if current_part:
-            parts.append(current_part.strip())
-        
-        # Отправляем части с небольшой задержкой
-        for i, part in enumerate(parts):
-            if i > 0:
-                time.sleep(0.5)  # Задержка между сообщениями
-            if part.strip():
-                self.bot.send_message(chat_id, part, parse_mode=parse_mode)
-    
-    def get_clinics_by_city(self, city: str) -> str:
-        """Возвращает список клиник по городу"""
-        clinics_data = {
-        clinics_data = {
-            "ялта": """<b>📍 ЯЛТА</b>
-
-1️⃣ <b>Клиника "Айболит"</b>
-📌 ул. Васильева-Тренёва, 3/7
-🕒 Пн–Пт: 9:00–19:00; Сб–Вс: 9:00–17:00
-💊 Ветаптека: +7 (978) 869-73-80
-👨‍⚕️ Врачи: Роман Леонидович +7 (978) 761-66-52, Наталья Георгиевна +7 (978) 869-70-09, +7 (978) 761-65-79
-🚫 На дом не выезжают
-🔗 <a href="https://vk.com/zoovet1">VK страница</a>
-
-2️⃣ <b>Зооветцентр "ЗдоровейКо"</b>
-📌 ул. Красноармейская, 6
-🕒 Пн–Пт: 9:00–17:00
-🚫 Сб–Вс: выходной
-💊 Есть ветаптека
-🏠 Выезд на дом: 1500 руб.
-👩‍⚕️ Юлия Викторовна: +7 (978) 782-46-81, +7 (978) 782-46-82
-🔗 <a href="https://vk.com/vet.zdoroveyko">VK страница</a>
-
-3️⃣ <b>Ялтинский ЗООЦЕНТР</b>
-📌 ул. Московская, 33Б (территория СТО)
-🕒 Пн–Пт: 9:30–19:00; Сб: 9:30–14:00
-💊 Есть ветаптека
-🚫 На дом не выезжают
-👩‍⚕️ Евгения Кононенко: +7 (978) 804-22-62
-
-4️⃣ <b>Ялтинский ветеринарный госпиталь</b>
-📌 ул. Тимирязева, 33
-🕒 Круглосуточно, кроме выходных (до 15:00)
-🧪 УЗИ, лаборатория, рентген, ЭКГ
-🚫 На дом не выезжают
-📞 +7 (978) 711-67-62
-
-5️⃣ <b>Клиника "Фауна"</b>
-📌 ул. Изобильная, 20 (напротив МЧС)
-🕒 Пн–Пт: 9:00–18:00; Сб–Вс: выходной
-💊 Ветаптека, рентген
-📞 +7 (978) 988-51-05
-🔗 <a href="https://vk.com/vetclinica_fauna_yalta">VK страница</a>
-
----SPLIT---
-
-6️⃣ <b>Клиника "Хатико"</b>
-📌 ул. Московская, 59 (ост. Автовокзал)
-🕒 Пн–Вс: 9:00–21:00
-💊 Ветаптека, УЗИ, рентген, анализ крови
-🐍 Принимают экзотических животных
-🏠 Выезд на дом: 2000 руб.
-📞 +7 (978) 725-91-59, +7 (978) 106-72-06
-
-7️⃣ <b>Клиника "Доверие"</b>
-📌 ул. Халтурина, 52А
-🕒 Пн–Вс: 9:00–21:00
-💉 Стационар, зоогостиница, донорская база
-💊 УЗИ, ЭХО сердца, рентген
-🐍 Экзотические животные
-🚫 На дом не выезжают
-📞 +7 (978) 256-15-01, +7 (978) 976-84-34
-🔗 <a href="https://vk.com/doverieyalta">VK страница</a>
-
-8️⃣ <b>Гос. ветлечебница</b>
-📌 ул. Саханя, 5
-🕒 Пн–Пт: 8:00–16:00; Сб–Вс: выходной
-👨‍⚕️ Николай Борисович
-📞 +7 (978) 860-36-98, +7 (3654) 23-78-14
-🔗 <a href="https://vk.com/yaltavetmed">VK страница</a>
-
-9️⃣ <b>Клиника Юлии Терещук</b>
-📌 ул. Московская, 31 (Московский ЖК 🏣)
-🕒 9:00–19:00
-🏠 Срочный вызов врача на дом: 1500 руб.
-📞 8 800 302-82-84, +7 (978) 290-64-05
-
-🔟 <b>Темешев Руслан</b>
-📞 +7 (978) 854-00-25
-🏠 Выезд на дом""",
-            
-            "гурзуф": """<b>📍 ГУРЗУФ</b>
-
-1️⃣ <b>Архангельская Светлана Владимировна</b>
-📌 ул. Ленинградская, 66
-🕒 Пн–Пт: 8:30–14:00; Сб: 8:30–12:00; Вс: выходной
-📞 +7 (978) 707-71-03""",
-            
-            "гаспра": """<b>📍 ГАСПРА</b>
-
-1️⃣ <b>Веткабинет "Мокрый нос"</b>
-📌 Севастопольское шоссе, 21
-🕒 Пн–Пт: 9:00–18:00
-📞 +7 (918) 917-18-29
-🔗 <a href="https://vk.com/club214152926">VK страница</a>""",
-            
-            "кореиз": """<b>📍 КОРЕИЗ</b>
-
-1️⃣ <b>Вет "Забота"</b>
-📌 ул. Маяковского, 2Б
-🕒 Вт–Пт: 9:00–19:00; Сб–Вс: 10:00–16:00; Пн: выходной
-💉 Льготная стерилизация
-📞 +7 (978) 651-07-47""",
-            
-            "алупка": """<b>📍 АЛУПКА</b>
-
-1️⃣ <b>Майя Георгиевна</b>
-🏠 Выезд на дом
-📞 +7 (978) 805-10-63
-
-2️⃣ <b>Ветпункт "Дай лапу!"</b>
-📌 ул. Западная, 22Б
-🕒 Пн–Сб: 9:00–18:00; Вс: выходной
-📞 +7 (978) 083-90-99
-
-3️⃣ <b>Городской ветцентр</b>
-📌 ул. Нагорная, 70
-🕒 Пн–Пт: 8:00–14:00; Сб–Вс: выходной
-📞 +7 (978) 806-89-63""",
-            
-            "симеиз": """<b>📍 СИМЕИЗ</b>
-
-👩‍⚕️ Юлия Лисогор
-📞 +7 (978) 806-17-82""",
-            
-            "оползневое": """<b>📍 ОПОЛЗНЕВОЕ</b>
-
-👩‍⚕️ Светлана Александровна
-📞 +7 (978) 776-31-81
-🏠 Выезд на дом"""
-        }
-        
-        return clinics_data.get(city.lower(), "⚠️ Информация по данному городу не найдена")
 
     def setup_handlers(self):
         """Обработчики сообщений"""
@@ -599,7 +405,7 @@ class CatBotWithPhotos:
 Выберите раздел:
 🏥 <b>Стерилизация</b> - информация
 🏠 <b>Пристройство</b> - котики ищут дом
-📞 <b>Контакты</b> - клиники и волонтеры
+📞 <b>Контакты</b> - связь с волонтерами
 ℹ️ <b>О проекте</b> - наша деятельность
 🐱 <b>Актуальные посты</b> - свежие объявления"""
             
@@ -668,85 +474,6 @@ class CatBotWithPhotos:
         def recent_posts_handler(message):
             self.send_channel_posts(message.chat.id)
         
-        @self.bot.message_handler(func=lambda m: m.text == "📞 Контакты")
-        def contacts_handler(message):
-            self.stats["users"].add(message.from_user.id)
-            self.stats["messages"] += 1
-            
-            contacts_text = """📞 <b>КОНТАКТЫ</b>
-
-Выберите категорию:
-
-🏥 <b>Клиники</b>
-Ветеринарные клиники по городам
-
-🤝 <b>Волонтеры</b>
-Координаторы и активисты"""
-            
-            self.bot.send_message(
-                message.chat.id, 
-                contacts_text, 
-                parse_mode="HTML",
-                reply_markup=self.get_contacts_keyboard()
-            )
-        
-        @self.bot.message_handler(func=lambda m: m.text == "🏥 Клиники")
-        def clinics_handler(message):
-            self.bot.send_message(
-                message.chat.id,
-                "🏥 <b>ВЕТЕРИНАРНЫЕ КЛИНИКИ</b>\n\nВыберите город:",
-                parse_mode="HTML",
-                reply_markup=self.get_clinics_keyboard()
-            )
-        
-        @self.bot.message_handler(func=lambda m: m.text == "🤝 Волонтеры")
-        def volunteers_handler(message):
-            volunteers_text = """🤝 <b>ВОЛОНТЕРЫ И КООРДИНАТОРЫ</b>
-
-👥 <b>Основные координаторы:</b>
-🔹 По кошкам: +7 978 144-90-70
-🔹 По стерилизации: +7 978 000-00-02
-🔹 Лечение: +7 978 000-00-03
-
-📱 <b>Социальные сети:</b>
-🔹 Telegram: @cats_yalta
-🔹 Instagram: @yalta_cats
-
-💬 <b>Группы волонтеров:</b>
-🔹 <a href="https://t.me/cats_yalta">Котики Ялта (канал)</a>
-🔹 <a href="https://t.me/cats_yalta_group">Котики Ялта (группа)</a>
-
-🤝 <b>Стать волонтером:</b>
-Пишите @cats_yalta_coordinator
-
-💰 <b>Поддержать финансово:</b>
-Карта: 2202 2020 0000 0000
-(реквизиты для пожертвований)"""
-            
-            self.bot.send_message(
-                message.chat.id, 
-                volunteers_text, 
-                parse_mode="HTML"
-            )
-        
-        # Обработчики городов для клиник
-        @self.bot.message_handler(func=lambda m: m.text in ["🏛️ Ялта", "🌊 Гурзуф", "🏔️ Гаспра", "🌅 Кореиз", "🏖️ Алупка", "🌲 Симеиз", "⛰️ Оползневое"])
-        def city_clinics_handler(message):
-            city_emoji_map = {
-                "🏛️ Ялта": "ялта",
-                "🌊 Гурзуф": "гурзуф", 
-                "🏔️ Гаспра": "гаспра",
-                "🌅 Кореиз": "кореиз",
-                "🏖️ Алупка": "алупка",
-                "🌲 Симеиз": "симеиз",
-                "⛰️ Оползневое": "оползневое"
-            }
-            
-            city = city_emoji_map.get(message.text, "")
-            if city:
-                clinic_info = self.get_clinics_by_city(city)
-                self.send_long_message(message.chat.id, clinic_info)
-        
         @self.bot.message_handler(func=lambda m: True)
         def message_handler(message):
             self.stats["users"].add(message.from_user.id)
@@ -797,6 +524,24 @@ class CatBotWithPhotos:
 🔹 Ваши контакты"""
                     
                     self.bot.send_message(chat_id, info_text, parse_mode="HTML")
+                
+                elif text == "📞 Контакты":
+                    contacts_text = """📞 <b>КОНТАКТЫ</b>
+
+👥 <b>Координаторы:</b>
+🔹 По кошкам: +7 978 144-90-70
+🔹 По стерилизации: +7 978 000-00-02
+🔹 Лечение: +7 978 000-00-03
+
+🏥 <b>Клиники:</b>
+🔹 "Айболит": +7 978 000-00-04
+🔹 "ВетМир": +7 978 000-00-05
+
+📱 <b>Социальные сети:</b>
+🔹 Telegram: @cats_yalta
+🔹 Instagram: @yalta_cats"""
+                    
+                    self.bot.send_message(chat_id, contacts_text, parse_mode="HTML")
                 
                 elif text == "ℹ️ О проекте":
                     about_text = """ℹ️ <b>О ПРОЕКТЕ "КОТИКИ ЯЛТЫ"</b>
