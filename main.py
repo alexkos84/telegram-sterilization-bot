@@ -11,7 +11,7 @@ from bs4 import BeautifulSoup
 import re
 from typing import Dict, List, Optional
 
-# 🔧 Настройка логирования
+# Настройка логирования
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -246,10 +246,23 @@ class CatBotWithPhotos:
         self.port = int(os.environ.get('PORT', 8080))
         self.webhook_url = os.environ.get('WEBHOOK_URL')
         self.stats = {"users": set(), "messages": 0}
+        self.contacts = self.load_contacts()  # Загружаем контакты
         
         self.setup_handlers()
         self.setup_routes()
     
+    def load_contacts(self) -> dict:
+        """Загружает контакты из JSON-файла."""
+        try:
+            with open('assets/contacts.json', 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            logger.error(f"❌ Ошибка загрузки контактов: {e}")
+            return {
+                "контакты": {"светлана": "+7 978 XXX-XX-XX"},
+                "синонимы": {}
+            }
+
     def send_post(self, chat_id: int, post: Dict):
         """Отправляет один пост с медиа или текстом"""
         try:
@@ -473,6 +486,42 @@ class CatBotWithPhotos:
         @self.bot.message_handler(func=lambda m: m.text == "🐱 Актуальные посты")
         def recent_posts_handler(message):
             self.send_channel_posts(message.chat.id)
+        
+        @self.bot.message_handler(func=lambda m: m.text and '@catYalta_bot' in m.text.lower())
+        def handle_mentions(message):
+            """Обработка упоминаний бота в чате"""
+            try:
+                query = message.text.lower().replace('@catyalta_bot', '').strip()
+                contacts = self.contacts["контакты"]
+                synonyms = self.contacts["синонимы"]
+                response = None
+                
+                # Проверяем прямые совпадения
+                for keyword in contacts:
+                    if keyword in query:
+                        response = f"📞 {keyword.capitalize()}: {contacts[keyword]}"
+                        break
+                
+                # Проверяем синонимы
+                if not response:
+                    for syn, original in synonyms.items():
+                        if syn in query:
+                            response = f"📞 {original.capitalize()}: {contacts[original]}"
+                            break
+                
+                if not response:
+                    response = (
+                        "🤷 Не нашёл контакта. Попробуйте:\n"
+                        "• 'Светлана'\n"
+                        "• 'Ветклиника'\n"
+                        "• 'Волонтеры'"
+                    )
+                
+                self.bot.reply_to(message, response)
+                
+            except Exception as e:
+                logger.error(f"Ошибка в handle_mentions: {e}")
+                self.bot.reply_to(message, "⚠️ Ошибка. Попробуйте позже.")
         
         @self.bot.message_handler(func=lambda m: True)
         def message_handler(message):
